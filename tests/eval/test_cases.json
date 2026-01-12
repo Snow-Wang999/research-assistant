@@ -1,0 +1,81 @@
+{
+  "version": "1.0",
+  "description": "科研助手评估测试用例",
+  "test_cases": [
+    {
+      "id": "simple_001",
+      "category": "simple_query",
+      "query": "Transformer是什么",
+      "expected_mode": "simple",
+      "expected_keywords": ["attention", "self-attention", "Vaswani"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "simple_002",
+      "category": "simple_query",
+      "query": "BERT的作者是谁",
+      "expected_mode": "simple",
+      "expected_keywords": ["Google", "Devlin"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "simple_003",
+      "category": "simple_query",
+      "query": "什么是注意力机制",
+      "expected_mode": "simple",
+      "expected_keywords": ["attention", "weight", "query", "key", "value"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "deep_001",
+      "category": "deep_research",
+      "query": "对比Transformer和Mamba在长序列建模上的优劣",
+      "expected_mode": "deep_research",
+      "expected_sections": ["Transformer特点", "Mamba特点", "对比分析", "适用场景"],
+      "difficulty": "medium"
+    },
+    {
+      "id": "deep_002",
+      "category": "deep_research",
+      "query": "大语言模型领域2024年最新的研究进展有哪些",
+      "expected_mode": "deep_research",
+      "expected_sections": ["模型架构", "训练方法", "应用场景", "代表工作"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "deep_003",
+      "category": "deep_research",
+      "query": "分析RAG技术的发展趋势和未来方向",
+      "expected_mode": "deep_research",
+      "expected_sections": ["RAG基础", "最新进展", "挑战", "趋势"],
+      "difficulty": "medium"
+    },
+    {
+      "id": "routing_001",
+      "category": "intent_routing",
+      "query": "GPT-4的参数量是多少",
+      "expected_mode": "simple",
+      "notes": "简单事实查询"
+    },
+    {
+      "id": "routing_002",
+      "category": "intent_routing",
+      "query": "比较不同的Prompt Engineering技术的效果",
+      "expected_mode": "deep_research",
+      "notes": "包含'比较'关键词"
+    },
+    {
+      "id": "routing_003",
+      "category": "intent_routing",
+      "query": "介绍一下LoRA微调方法",
+      "expected_mode": "simple",
+      "notes": "包含'介绍'关键词"
+    }
+  ],
+  "metrics": {
+    "routing_accuracy": "意图路由准确率",
+    "search_relevance": "搜索结果相关性",
+    "response_quality": "回答质量评分",
+    "latency": "响应延迟"
+  }
+}
