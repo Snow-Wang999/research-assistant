@@ -1,7 +1,7 @@
 """科研助手主入口"""
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 # 添加src目录到路径
 src_dir = Path(__file__).parent
@@ -12,29 +12,48 @@ from tools.search import UnifiedSearch
 from tools.query_analyzer import QueryAnalyzer
 from tools.abstract_summarizer import AbstractSummarizer
 from tools.reading_guide import ReadingGuide
+from agents.deep_research import DeepResearchOrchestrator
 from utils.config import config
 
 
 class ResearchAssistant:
     """科研助手主类"""
 
-    def __init__(self, semantic_scholar_key: Optional[str] = None):
+    def __init__(
+        self,
+        semantic_scholar_key: Optional[str] = None,
+        progress_callback: Optional[Callable[[str, float], None]] = None
+    ):
+        """
+        初始化科研助手
+
+        Args:
+            semantic_scholar_key: Semantic Scholar API Key（可选）
+            progress_callback: 进度回调函数，用于 UI 显示进度
+        """
         # 使用统一搜索器（整合arXiv + OpenAlex）
         ss_key = semantic_scholar_key or config.SEMANTIC_SCHOLAR_API_KEY
         self.searcher = UnifiedSearch(semantic_scholar_key=ss_key)
+        self.progress_callback = progress_callback
 
         # 初始化查询分析器和摘要总结器
         translator_config = config.get_translator_config()
-        deepseek_key = translator_config.get("deepseek_api_key")
+        self.deepseek_key = translator_config.get("deepseek_api_key")
 
-        if deepseek_key:
-            self.analyzer = QueryAnalyzer(deepseek_api_key=deepseek_key)
-            self.summarizer = AbstractSummarizer(deepseek_api_key=deepseek_key)
-            self.reading_guide = ReadingGuide(deepseek_api_key=deepseek_key)
+        if self.deepseek_key:
+            self.analyzer = QueryAnalyzer(deepseek_api_key=self.deepseek_key)
+            self.summarizer = AbstractSummarizer(deepseek_api_key=self.deepseek_key)
+            self.reading_guide = ReadingGuide(deepseek_api_key=self.deepseek_key)
+            # 深度研究协调器
+            self.deep_research = DeepResearchOrchestrator(
+                deepseek_api_key=self.deepseek_key,
+                progress_callback=progress_callback
+            )
         else:
             self.analyzer = QueryAnalyzer()  # 会使用回退方案
             self.summarizer = None
             self.reading_guide = ReadingGuide()  # 使用回退方案
+            self.deep_research = DeepResearchOrchestrator()  # 使用回退方案
             print("提示: 未配置 DEEPSEEK_API_KEY，将使用简单模式")
 
     def process_query(self, query: str, mode: str = "auto") -> dict:
@@ -120,67 +139,107 @@ class ResearchAssistant:
         """
         处理深度研究查询
 
-        TODO: v0.3.0 实现完整的深度研究功能
+        v0.3.0 实现：
         - 子问题分解
-        - 多轮迭代搜索
+        - 并行搜索研究
         - 综合分析报告
         """
-        # 当前：使用更多的搜索结果
-        result = self.searcher.search_multi_keywords(
-            keywords=analysis.keywords,
-            limit_per_keyword=5,
-            total_limit=10  # Deep Research 返回更多结果
-        )
+        # 执行深度研究
+        deep_result = self.deep_research.run(original_query)
 
-        # 转换为字典格式
+        # 收集所有论文（从各子问题的研究结果中提取）
+        all_papers = []
         arxiv_papers = []
         openalex_papers = []
-        for p in result.papers:
-            paper_dict = {
-                "title": p.title,
-                "authors": p.authors[:3],
-                "year": p.year,
-                "citation_count": p.citation_count,
-                "abstract": p.abstract,
-                "url": p.url,
-                "source": p.source,
-            }
-            if p.source == "arxiv":
-                arxiv_papers.append(paper_dict)
-            else:
-                openalex_papers.append(paper_dict)
 
-        all_papers = arxiv_papers + openalex_papers
+        seen_titles = set()  # 去重
+        for research_result in deep_result.research_results:
+            for src in research_result.sources:
+                title = src.get("title", "")
+                if title.lower() in seen_titles:
+                    continue
+                seen_titles.add(title.lower())
 
-        # LLM总结摘要
-        if self.summarizer and all_papers:
-            all_papers = self.summarizer.summarize_batch(all_papers)
-            arxiv_papers = [p for p in all_papers if p.get('source') == 'arxiv']
-            openalex_papers = [p for p in all_papers if p.get('source') == 'openalex']
+                paper_dict = {
+                    "title": title,
+                    "authors": src.get("authors", []),
+                    "year": src.get("year"),
+                    "citation_count": src.get("citation_count"),
+                    "abstract": src.get("abstract", ""),
+                    "url": src.get("url", ""),
+                    "source": src.get("source", "unknown"),
+                    "relevance": src.get("relevance", ""),
+                }
+                all_papers.append(paper_dict)
 
-        # 生成阅读导航
+                if src.get("source") == "arxiv":
+                    arxiv_papers.append(paper_dict)
+                else:
+                    openalex_papers.append(paper_dict)
+
+        # 深度研究模式不需要额外的摘要总结，报告已包含分析
+        # 只截取原始摘要的前150字作为简要说明
+        for paper in all_papers:
+            abstract = paper.get("abstract", "")
+            if abstract and len(abstract) > 150:
+                paper["summary"] = abstract[:150] + "..."
+            elif abstract:
+                paper["summary"] = abstract
+
+        # 生成阅读导航（基于报告中的论文）
         reading_guide = self.reading_guide.generate(original_query, all_papers)
+
+        # 获取报告中的参考来源（与报告引用编号一致）
+        report_sources = []
+        if deep_result.report and deep_result.report.sources:
+            for src in deep_result.report.sources:
+                report_sources.append({
+                    "title": src.get("title", ""),
+                    "authors": src.get("authors", []),
+                    "year": src.get("year"),
+                    "citation_count": src.get("citation_count"),
+                    "abstract": src.get("abstract", ""),
+                    "url": src.get("url", ""),
+                    "source": src.get("source", "unknown"),
+                    "relevance": src.get("relevance", ""),
+                    "summary": src.get("abstract", "")[:150] + "..." if src.get("abstract", "") and len(src.get("abstract", "")) > 150 else src.get("abstract", ""),
+                })
 
         return {
             "mode": "deep_research",
             "query": original_query,
             "intent": analysis.intent,
             "keywords": analysis.keywords,
-            "sources": result.sources_used,
-            "total_found": result.total_count,
+            "sources": ["arxiv", "openalex"],
+            "total_found": deep_result.metadata.get("total_papers", 0),
             "arxiv_papers": arxiv_papers,
             "openalex_papers": openalex_papers,
             "papers": all_papers,
             "reading_guide": reading_guide,
-            # TODO: 添加深度分析报告
-            "report": None,
+            # 深度研究特有内容
+            "report": deep_result.report_markdown,
+            "report_sources": report_sources,  # 与报告引用编号一致的参考来源
+            "decomposition": {
+                "query_type": deep_result.decomposition.query_type,
+                "strategy": deep_result.decomposition.research_strategy,
+                "sub_questions": [
+                    {
+                        "question": sq.question,
+                        "purpose": sq.purpose,
+                        "keywords": sq.search_keywords
+                    }
+                    for sq in deep_result.decomposition.sub_questions
+                ]
+            },
+            "metadata": deep_result.metadata,
         }
 
 
 def main():
     """命令行入口"""
     print("=" * 50)
-    print("科研助手 v0.2.0")
+    print("科研助手 v0.3.0")
+    print("支持深度研究：子问题分解 + 并行搜索 + 研究报告")
     print("=" * 50)
 
     assistant = ResearchAssistant()
@@ -205,21 +264,32 @@ def main():
             print(f"关键词: {result.get('keywords', [])}")
             print(f"模式: {result['mode']}")
             print(f"搜索源: {', '.join(result.get('sources', []))}")
-            print(f"找到 {len(result['papers'])} 篇相关论文:\n")
 
-            for i, paper in enumerate(result["papers"], 1):
-                source_tag = f"[{paper.get('source', 'unknown')}]"
-                print(f"[{i}] {source_tag} {paper['title']}")
-                if paper.get('title_cn'):
-                    print(f"    📖 {paper['title_cn']}")
-                print(f"    作者: {', '.join(paper['authors'])}")
-                print(f"    年份: {paper.get('year', 'N/A')}")
-                if paper.get('citation_count'):
-                    print(f"    引用: {paper['citation_count']}")
-                if paper.get('summary'):
-                    print(f"    摘要: {paper['summary']}")
-                print(f"    链接: {paper['url']}")
-                print()
+            # 深度研究模式显示报告
+            if result['mode'] == 'deep_research' and result.get('report'):
+                print("\n" + "=" * 50)
+                print("深度研究报告")
+                print("=" * 50)
+                print(result['report'])
+            else:
+                # 快速搜索模式显示论文列表
+                print(f"找到 {len(result['papers'])} 篇相关论文:\n")
+
+                for i, paper in enumerate(result["papers"], 1):
+                    source_tag = f"[{paper.get('source', 'unknown')}]"
+                    print(f"[{i}] {source_tag} {paper['title']}")
+                    if paper.get('title_cn'):
+                        print(f"    📖 {paper['title_cn']}")
+                    authors = paper.get('authors', [])
+                    if authors:
+                        print(f"    作者: {', '.join(authors)}")
+                    print(f"    年份: {paper.get('year', 'N/A')}")
+                    if paper.get('citation_count'):
+                        print(f"    引用: {paper['citation_count']}")
+                    if paper.get('summary'):
+                        print(f"    摘要: {paper['summary']}")
+                    print(f"    链接: {paper['url']}")
+                    print()
 
         except KeyboardInterrupt:
             print("\n再见！")

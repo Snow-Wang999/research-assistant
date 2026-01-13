@@ -1,10 +1,10 @@
 # 科研助手项目进度
 
-> 最后更新: 2025-01-11
+> 最后更新: 2025-01-13
 
 ## 已完成 ✅
 
-### Phase 1 - MVP基础架构
+### Phase 1 - MVP基础架构 (v0.1.0)
 - [x] 项目初始化（目录结构、配置文件）
 - [x] 意图路由器 (Intent Router) - 区分简单/深度查询
 - [x] Semantic Scholar 论文搜索集成
@@ -17,29 +17,45 @@
 - [x] 单元测试框架 + 评估用例
 - [x] 架构文档
 
+### Phase 2 - 智能分析 (v0.2.0)
+- [x] QueryAnalyzer 智能查询分析（多关键词生成）
+- [x] ReadingGuide 阅读导航（入门/核心/最新论文推荐）
+- [x] AbstractSummarizer 摘要中文总结
+- [x] OpenAlex 搜索集成（替代 Semantic Scholar）
+- [x] 搜索结果综合排序（相关性 + 时间 + 引用）
+- [x] 论文分类功能
+
+### Phase 3 - 深度研究 (v0.3.0) ✅
+- [x] SubQuestionDecomposer 子问题分解器
+- [x] ResearchAgent 研究员 Agent（并行搜索 + LLM压缩）
+- [x] ReportGenerator 研究报告生成器（带引用标注）
+- [x] DeepResearchOrchestrator 深度研究协调器（超时控制）
+- [x] 整合到主入口和 UI
+- [x] 流式输出 + 停止按钮
+- [x] 各阶段耗时显示
+- [x] 论文列表独立编号说明
+
 ## 进行中 🚧
 
-### Phase 1 - MVP测试
-- [ ] 安装依赖并测试运行
-- [ ] 验证搜索功能正常
+### v0.3.1 优化（可选）
+- [ ] 论文相关性筛选优化
+- [ ] 搜索关键词精准度提升
+- [ ] 真正的渐进式披露（分阶段显示结果）
 
 ## 待开始 📋
 
-### Phase 2 - 核心功能
-- [ ] Deep Research 多轮搜索实现
-- [ ] LLM语义压缩（替换简单规则版）
-- [ ] 本地PDF论文库读取
+### Phase 4 - 本地论文库 (v0.4.0)
+- [ ] 本地PDF论文库读取（Claude 多模态）
 - [ ] 向量数据库集成（Chroma）
-- [ ] 对话记忆管理
+- [ ] 本地+在线混合搜索
 
-### Phase 3 - 高级功能
+### Phase 5 - 高级功能
 - [ ] 多Agent协作架构
-- [ ] 研究报告自动生成
 - [ ] 知识图谱构建
 - [ ] MCP Server集成
+- [ ] 对话记忆管理
 
-### Phase 4 - 工程化
-- [ ] 连接GitHub仓库
+### Phase 6 - 工程化
 - [ ] CI/CD配置
 - [ ] Docker部署
 - [ ] API文档（FastAPI）
@@ -50,10 +66,11 @@
 
 | 里程碑 | 目标 | 状态 |
 |--------|------|------|
-| M1 | MVP可运行 | ✅ 代码完成，待测试 |
-| M2 | Deep Research完整实现 | 📋 待开始 |
-| M3 | 本地论文库功能 | 📋 待开始 |
-| M4 | 生产部署 | 📋 待开始 |
+| M1 | MVP可运行 | ✅ v0.1.0 完成 |
+| M2 | 智能分析+阅读导航 | ✅ v0.2.0 完成 |
+| M3 | Deep Research完整实现 | ✅ v0.3.0 完成 |
+| M4 | 本地论文库功能 | 📋 待开始 |
+| M5 | 生产部署 | 📋 待开始 |
 
 ## 快速启动
 
@@ -81,11 +98,49 @@ research-assistant/
 ├── src/
 │   ├── main.py            # 主入口
 │   ├── agents/
-│   │   └── intent_router.py
-│   └── tools/search/
-│       ├── semantic_scholar.py
-│       ├── arxiv_search.py
-│       └── unified_search.py  # 统一搜索器
+│   │   ├── intent_router.py
+│   │   └── deep_research/     # v0.3.0 新增
+│   │       ├── decomposer.py      # 子问题分解
+│   │       ├── research_agent.py  # 研究员Agent
+│   │       ├── report_generator.py # 报告生成
+│   │       └── orchestrator.py    # 协调器
+│   └── tools/
+│       ├── search/
+│       │   ├── arxiv_search.py
+│       │   ├── openalex_search.py
+│       │   └── unified_search.py
+│       ├── query_analyzer.py
+│       ├── reading_guide.py
+│       └── abstract_summarizer.py
 └── ui/
     └── app.py             # Gradio界面
+```
+
+## v0.3.0 Deep Research 架构
+
+```
+用户复杂查询
+      │
+      ▼
+┌──────────────────────────┐
+│  SubQuestionDecomposer   │  ← 使用 DeepSeek 分解问题
+│  "对比 A 和 B"            │
+│   → ["A核心概念", "B核心概念", "A与B对比"]
+└──────────────────────────┘
+      │
+      ▼  (并行执行)
+┌──────────────────────────┐
+│    ResearchAgent × N     │  ← 每个子问题独立搜索
+│  ├─ 子问题1 → 搜索+压缩   │
+│  ├─ 子问题2 → 搜索+压缩   │
+│  └─ 子问题3 → 搜索+压缩   │
+└──────────────────────────┘
+      │
+      ▼
+┌──────────────────────────┐
+│    ReportGenerator       │  ← 汇总生成结构化报告
+│  - 概述                   │
+│  - 各子问题分析           │
+│  - 综合结论               │
+└──────────────────────────┘
 ```
