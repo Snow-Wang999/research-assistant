@@ -42,10 +42,11 @@ class OpenAlexSearch:
         Returns:
             论文列表
         """
+        # 搜索更多结果，然后在本地过滤和排序
         params = {
             "search": query,
-            "per-page": min(limit, 50),  # OpenAlex 最大50
-            "sort": "cited_by_count:desc",  # 按引用数排序
+            "per-page": min(limit * 3, 50),  # 多搜一些以便过滤
+            # 默认按相关性排序（relevance_score），不指定sort
         }
 
         # 添加邮箱到参数（polite pool）
@@ -71,7 +72,32 @@ class OpenAlexSearch:
             if paper:
                 papers.append(paper)
 
-        return papers
+        # 综合排序：相关性 + 时间 + 引用数
+        import math
+        from datetime import datetime
+        current_year = datetime.now().year
+
+        def composite_score(paper, idx):
+            # 1. 相关性分数（OpenAlex 返回顺序）
+            relevance = max(0, 30 - idx)  # 前30名有相关性加分
+
+            # 2. 时间分数（越新越高）
+            year = paper.year if paper.year else 2000
+            years_ago = current_year - year
+            # 近5年的论文获得时间加分：2024=25分, 2023=20分, 2022=15分...
+            recency = max(0, (5 - years_ago) * 5)
+
+            # 3. 引用分数（取对数避免高引用完全主导）
+            citations = math.log10(paper.citation_count + 1) * 3 if paper.citation_count else 0
+
+            # 综合得分：时间权重最高，其次相关性，最后引用
+            return recency + relevance + citations
+
+        # 排序
+        scored_papers = [(p, composite_score(p, i)) for i, p in enumerate(papers)]
+        scored_papers.sort(key=lambda x: x[1], reverse=True)
+
+        return [p for p, _ in scored_papers[:limit]]
 
     def _parse_paper(self, item: dict) -> Optional[Paper]:
         """解析 OpenAlex 论文数据为 Paper 对象"""

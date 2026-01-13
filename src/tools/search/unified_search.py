@@ -183,6 +183,68 @@ class UnifiedSearch:
         # 合并：arXiv在前，OpenAlex在后
         return arxiv_papers + openalex_papers + other_papers
 
+    def search_multi_keywords(
+        self,
+        keywords: List[str],
+        limit_per_keyword: int = 5,
+        total_limit: int = 10
+    ) -> SearchResult:
+        """
+        多关键词搜索
+
+        用多组关键词分别搜索，合并去重结果。
+
+        Args:
+            keywords: 多组搜索关键词
+            limit_per_keyword: 每组关键词每个源返回的数量
+            total_limit: 每个源最终返回的总数量
+
+        Returns:
+            SearchResult: 合并去重后的结果
+        """
+        if not keywords:
+            return SearchResult(papers=[], sources_used=[], total_count=0)
+
+        all_papers = []
+        sources_used = set()
+
+        # 并行搜索所有关键词
+        with ThreadPoolExecutor(max_workers=min(len(keywords) * 2, 8)) as executor:
+            futures = []
+            for kw in keywords:
+                for source in self.searchers.keys():
+                    futures.append(
+                        executor.submit(self._search_single, source, kw, limit_per_keyword)
+                    )
+
+            for future in as_completed(futures):
+                try:
+                    papers = future.result()
+                    if papers:
+                        all_papers.extend(papers)
+                        sources_used.add(papers[0].source)
+                except Exception as e:
+                    print(f"多关键词搜索出错: {e}")
+
+        # 去重
+        unique_papers = self._deduplicate(all_papers)
+
+        # 分组排序
+        sorted_papers = self._group_by_source(unique_papers)
+
+        # 限制每个源的数量
+        arxiv_papers = [p for p in sorted_papers if p.source == "arxiv"][:total_limit]
+        openalex_papers = [p for p in sorted_papers if p.source == "openalex"][:total_limit]
+        final_papers = arxiv_papers + openalex_papers
+
+        print(f"[多关键词搜索] 关键词数: {len(keywords)}, 去重后: {len(unique_papers)}, 最终: {len(final_papers)}")
+
+        return SearchResult(
+            papers=final_papers,
+            sources_used=list(sources_used),
+            total_count=len(unique_papers)
+        )
+
     def search_arxiv_only(self, query: str, limit: int = 10) -> List[Paper]:
         """仅搜索arXiv"""
         return self._search_single("arxiv", query, limit)
