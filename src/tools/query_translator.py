@@ -22,7 +22,7 @@ class QueryTranslator:
         self,
         deepseek_api_key: Optional[str] = None,
         qwen_api_key: Optional[str] = None,
-        provider: str = "deepseek"  # "deepseek" 或 "qwen"
+        provider: str = "qwen"  # "deepseek" 或 "qwen"，默认使用 qwen
     ):
         """
         初始化翻译器

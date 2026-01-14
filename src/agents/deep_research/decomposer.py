@@ -3,11 +3,16 @@
 将复杂的研究问题分解为多个可独立研究的子问题。
 参考 Open Deep Research 的 Supervisor 设计。
 """
-import httpx
 import json
 import re
 from typing import List, Optional
 from dataclasses import dataclass
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from utils.llm_client import QwenClient
 
 
 @dataclass
@@ -34,8 +39,6 @@ class SubQuestionDecomposer:
     使用 LLM 将复杂问题分解为多个子问题，
     每个子问题可以独立进行搜索研究。
     """
-
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
     SYSTEM_PROMPT = """你是一个研究问题分析专家。你的任务是将复杂的研究问题分解为多个可独立研究的子问题。
 
@@ -101,8 +104,14 @@ class SubQuestionDecomposer:
   ]
 }"""
 
-    def __init__(self, deepseek_api_key: Optional[str] = None):
-        self.api_key = deepseek_api_key
+    def __init__(self, qwen_api_key: Optional[str] = None):
+        """
+        初始化分解器
+
+        Args:
+            qwen_api_key: 通义千问 API Key
+        """
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
 
     def decompose(self, query: str) -> DecompositionResult:
         """
@@ -114,30 +123,20 @@ class SubQuestionDecomposer:
         Returns:
             DecompositionResult: 分解结果
         """
-        if not self.api_key:
+        if not self.llm_client:
             return self._fallback_decompose(query)
 
         try:
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": f"研究问题：{query}"}
-                    ],
-                    "max_tokens": 1000,
-                    "temperature": 0.3
-                },
-                timeout=15.0  # 缩短API超时
+            # 使用通义千问 turbo 模型（问题分解是简单任务）
+            prompt = f"{self.SYSTEM_PROMPT}\n\n研究问题：{query}"
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="intent",
+                max_tokens=1000,
+                temperature=0.3,
+                timeout=15.0
             )
-            response.raise_for_status()
 
-            content = response.json()["choices"][0]["message"]["content"]
             parsed = self._parse_response(content)
 
             if parsed:

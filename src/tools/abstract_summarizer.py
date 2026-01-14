@@ -1,25 +1,28 @@
 """摘要总结器 - 使用LLM将英文摘要总结为中文，并翻译标题"""
-import httpx
 import json
 from typing import Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.llm_client import QwenClient
 
 
 class AbstractSummarizer:
     """使用LLM总结论文摘要并翻译标题"""
 
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-
     def __init__(
         self,
-        deepseek_api_key: str = "",
+        qwen_api_key: str = "",
         max_workers: int = 5,
     ):
-        self.api_key = deepseek_api_key
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
         self.max_workers = max_workers
 
-        if not self.api_key:
-            print("[摘要总结] 未配置API Key，将显示原始摘要")
+        if not self.llm_client:
+            print("[摘要总结] 未配置 QWEN_API_KEY，将显示原始摘要")
 
     def summarize_and_translate(self, abstract: str, title: str = "") -> dict:
         """
@@ -32,7 +35,7 @@ class AbstractSummarizer:
         Returns:
             dict: {"title_cn": "中文标题", "summary": "中文摘要总结"}
         """
-        if not self.api_key:
+        if not self.llm_client:
             return {
                 "title_cn": "",
                 "summary": abstract[:200] + "..." if len(abstract) > 200 else abstract
@@ -55,23 +58,14 @@ class AbstractSummarizer:
 {{"title_cn": "中文标题", "summary": "中文摘要总结"}}"""
 
         try:
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 200,
-                },
-                timeout=20.0,
+            # 使用通义千问 turbo 模型（翻译总结是简单任务）
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="compress",
+                max_tokens=200,
+                temperature=0.3,
+                timeout=20.0
             )
-            response.raise_for_status()
-            result = response.json()
-            content = result["choices"][0]["message"]["content"].strip()
 
             # 解析JSON
             # 处理可能的markdown代码块
@@ -146,7 +140,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     summarizer = AbstractSummarizer(
-        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", "")
+        qwen_api_key=os.getenv("QWEN_API_KEY", "")
     )
 
     test_abstract = """

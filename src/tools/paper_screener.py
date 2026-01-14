@@ -4,11 +4,16 @@
 参考 Elicit 的 Screening 流程设计。
 """
 
-import httpx
 import json
 import re
 from typing import List, Optional
 from dataclasses import dataclass, field
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.llm_client import QwenClient
 
 
 @dataclass
@@ -58,8 +63,6 @@ class PaperScreener:
     使用 LLM 基于摘要筛选相关论文，决定哪些值得获取全文。
     """
 
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-
     SCREENING_PROMPT = """你是一个学术论文筛选专家。你的任务是评估每篇论文与研究问题的相关性。
 
 研究问题: {query}
@@ -104,7 +107,7 @@ class PaperScreener:
 
     def __init__(
         self,
-        deepseek_api_key: Optional[str] = None,
+        qwen_api_key: Optional[str] = None,
         max_fulltext: int = 15,
         min_score_for_fulltext: int = 4
     ):
@@ -112,11 +115,11 @@ class PaperScreener:
         初始化筛选器
 
         Args:
-            deepseek_api_key: DeepSeek API Key
+            qwen_api_key: 通义千问 API Key
             max_fulltext: 最大获取全文的论文数
             min_score_for_fulltext: 获取全文的最低分数
         """
-        self.api_key = deepseek_api_key
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
         self.max_fulltext = max_fulltext
         self.min_score_for_fulltext = min_score_for_fulltext
 
@@ -147,7 +150,7 @@ class PaperScreener:
 
         max_ft = max_fulltext or self.max_fulltext
 
-        if self.api_key:
+        if self.llm_client:
             return self._screen_with_llm(query, papers, max_ft)
         else:
             return self._screen_fallback(query, papers, max_ft)
@@ -186,32 +189,22 @@ class PaperScreener:
 
             print(f"[PaperScreener] 筛选 {len(papers)} 篇论文...")
 
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "user", "content": prompt}
-                    ],
-                    "max_tokens": 2000,
-                    "temperature": 0.2
-                },
+            # 使用通义千问 turbo 模型（论文筛选是简单分类任务）
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="screen",
+                max_tokens=2000,
+                temperature=0.2,
                 timeout=30.0
             )
-            response.raise_for_status()
 
-            content = response.json()["choices"][0]["message"]["content"]
             evaluations = self._parse_response(content)
 
             if evaluations:
                 return self._build_result(query, papers, evaluations, max_fulltext)
 
         except Exception as e:
-            print(f"[PaperScreener] LLM 筛选出错: {e}")
+            print(f"[PaperScreener] LLM 筛选出错: {type(e).__name__}: {e}")
 
         return self._screen_fallback(query, papers, max_fulltext)
 
@@ -401,7 +394,7 @@ if __name__ == "__main__":
     ]
 
     screener = PaperScreener(
-        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
+        qwen_api_key=os.getenv("QWEN_API_KEY"),
         max_fulltext=10
     )
 

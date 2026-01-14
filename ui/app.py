@@ -13,11 +13,13 @@ if str(src_dir) not in sys.path:
 
 from main import ResearchAssistant
 from tools.reading_guide import ReadingGuide
+from tools.pdf import PaperProcessor
 
 
 def create_app():
     """创建Gradio应用"""
     assistant = ResearchAssistant()
+    pdf_processor = PaperProcessor()
 
     def show_paper_details(paper_json: str) -> str:
         """显示论文详情到侧边栏"""
@@ -312,6 +314,60 @@ def create_app():
 
         yield header, report_output, guide_output, arxiv_output, openalex_output, papers_json
 
+    def analyze_pdf(pdf_file):
+        """分析上传的 PDF 文件"""
+        if pdf_file is None:
+            return "请先上传 PDF 文件", "", "", ""
+
+        try:
+            # 获取文件路径
+            pdf_path = pdf_file.name if hasattr(pdf_file, 'name') else str(pdf_file)
+
+            # 处理 PDF
+            result = pdf_processor.process_local_pdf(pdf_path)
+
+            if not result.success:
+                return f"## ❌ 分析失败\n\n{result.error}", "", "", ""
+
+            # 构建结果
+            header = f"## ✅ 分析完成\n\n"
+            header += f"**标题**: {result.title}\n\n"
+            header += f"**页数**: {result.total_pages}\n\n"
+            header += f"**全文长度**: {len(result.full_text)} 字符\n\n"
+            header += f"**切片数**: {len(result.chunks)}\n"
+
+            # 摘要
+            abstract = ""
+            if result.abstract:
+                abstract = f"### 📝 摘要\n\n{result.abstract}"
+            else:
+                abstract = "*未能自动提取摘要*"
+
+            # 全文预览
+            fulltext_preview = result.full_text[:3000] if result.full_text else "无法提取全文"
+
+            # 切片信息
+            chunks_info = "### 📊 切片统计\n\n"
+            if result.chunks:
+                total_tokens = sum(c.token_count for c in result.chunks)
+                avg_tokens = total_tokens / len(result.chunks)
+                chunks_info += f"- 切片数量: {len(result.chunks)}\n"
+                chunks_info += f"- 总 Token 数: {total_tokens}\n"
+                chunks_info += f"- 平均每片: {avg_tokens:.0f} tokens\n\n"
+
+                # 显示前 5 个切片预览
+                chunks_info += "**前 5 个切片预览:**\n\n"
+                for i, chunk in enumerate(result.chunks[:5], 1):
+                    preview = chunk.text[:100].replace("\n", " ")
+                    chunks_info += f"{i}. (第{chunk.pages}页, {chunk.token_count}tokens) `{preview}...`\n\n"
+            else:
+                chunks_info += "*无切片信息*"
+
+            return header, abstract, fulltext_preview, chunks_info
+
+        except Exception as e:
+            return f"## ❌ 处理出错\n\n{str(e)}", "", "", ""
+
     # 创建界面
     with gr.Blocks(title="科研助手 v0.4.0", theme=gr.themes.Soft()) as app:
         gr.Markdown(
@@ -406,21 +462,39 @@ def create_app():
                             inputs=dr_query_input,
                         )
 
-                    # Tab 3: 论文库（占位）
+                    # Tab 3: 论文库（PDF 上传分析）
                     with gr.Tab("论文库", id="papers"):
                         gr.Markdown(
                             """
                             ### 📚 本地论文库
 
-                            **功能开发中...**
-
-                            未来将支持:
-                            - 📤 上传本地PDF
-                            - 🗄️ 论文库管理
-                            - 🔍 全文检索
-                            - 🏷️ 标签分类
+                            上传 PDF 文件进行解析和分析。支持：
+                            - 📤 单个 PDF 上传分析
+                            - 📄 提取全文和摘要
+                            - 🔢 文档切片统计
                             """
                         )
+
+                        with gr.Row():
+                            pdf_upload = gr.File(
+                                label="上传 PDF 文件",
+                                file_types=[".pdf"],
+                                file_count="single"
+                            )
+
+                        with gr.Row():
+                            analyze_btn = gr.Button("📄 分析 PDF", variant="primary")
+
+                        # 分析结果显示
+                        pdf_result_header = gr.Markdown(label="分析结果")
+                        pdf_abstract = gr.Markdown(label="摘要")
+                        pdf_fulltext = gr.Textbox(
+                            label="全文预览（前3000字）",
+                            lines=15,
+                            max_lines=20,
+                            interactive=False
+                        )
+                        pdf_chunks_info = gr.Markdown(label="切片信息")
 
             # 右侧：统一侧边栏
             with gr.Column(scale=3):
@@ -478,6 +552,13 @@ def create_app():
         )
 
         dr_stop_btn.click(fn=None, inputs=None, outputs=None, cancels=[dr_event, submit_dr_event])
+
+        # 论文库Tab - PDF 上传分析
+        analyze_btn.click(
+            fn=analyze_pdf,
+            inputs=[pdf_upload],
+            outputs=[pdf_result_header, pdf_abstract, pdf_fulltext, pdf_chunks_info]
+        )
 
         # 侧边栏：更新论文选择器（当搜索完成后）
         def update_paper_selector(papers_json: str):

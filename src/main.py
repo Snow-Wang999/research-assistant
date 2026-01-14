@@ -38,15 +38,15 @@ class ResearchAssistant:
 
         # 初始化查询分析器和摘要总结器
         translator_config = config.get_translator_config()
-        self.deepseek_key = translator_config.get("deepseek_api_key")
+        self.qwen_key = translator_config.get("qwen_api_key")
 
-        if self.deepseek_key:
-            self.analyzer = QueryAnalyzer(deepseek_api_key=self.deepseek_key)
-            self.summarizer = AbstractSummarizer(deepseek_api_key=self.deepseek_key)
-            self.reading_guide = ReadingGuide(deepseek_api_key=self.deepseek_key)
+        if self.qwen_key:
+            self.analyzer = QueryAnalyzer(qwen_api_key=self.qwen_key)
+            self.summarizer = AbstractSummarizer(qwen_api_key=self.qwen_key)
+            self.reading_guide = ReadingGuide(qwen_api_key=self.qwen_key)
             # 深度研究协调器
             self.deep_research = DeepResearchOrchestrator(
-                deepseek_api_key=self.deepseek_key,
+                qwen_api_key=self.qwen_key,
                 progress_callback=progress_callback
             )
         else:
@@ -54,7 +54,7 @@ class ResearchAssistant:
             self.summarizer = None
             self.reading_guide = ReadingGuide()  # 使用回退方案
             self.deep_research = DeepResearchOrchestrator()  # 使用回退方案
-            print("提示: 未配置 DEEPSEEK_API_KEY，将使用简单模式")
+            print("提示: 未配置 QWEN_API_KEY，将使用简单模式")
 
     def process_query(self, query: str, mode: str = "auto", use_fulltext: bool = False) -> dict:
         """
@@ -154,7 +154,7 @@ class ResearchAssistant:
 
         # 创建协调器实例（使用指定配置）
         orchestrator = DeepResearchOrchestrator(
-            deepseek_api_key=self.deepseek_key,
+            qwen_api_key=self.qwen_key,
             config=config,
             progress_callback=self.progress_callback
         )

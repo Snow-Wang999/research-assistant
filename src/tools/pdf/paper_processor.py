@@ -179,6 +179,60 @@ class PaperProcessor:
         return self.downloader.is_cached(arxiv_id)
 
 
+    def process_local_pdf(self, pdf_path: str) -> ProcessedPaper:
+        """
+        处理本地 PDF 文件（用户上传）
+
+        Args:
+            pdf_path: 本地 PDF 文件路径
+
+        Returns:
+            ProcessedPaper: 处理结果
+        """
+        from pathlib import Path
+
+        pdf_file = Path(pdf_path)
+        if not pdf_file.exists():
+            return ProcessedPaper(
+                arxiv_id="local",
+                title="",
+                abstract="",
+                full_text="",
+                chunks=[],
+                total_pages=0,
+                error=f"文件不存在: {pdf_path}"
+            )
+
+        try:
+            # 解析 PDF
+            parsed = self.parser.parse(str(pdf_file))
+
+            # 切片
+            chunked = self.chunker.chunk(parsed)
+
+            return ProcessedPaper(
+                arxiv_id="local",
+                title=chunked.title or pdf_file.stem,
+                abstract=chunked.abstract,
+                full_text=parsed.get_full_text(),
+                chunks=chunked.chunks,
+                total_pages=chunked.total_pages,
+                pdf_path=str(pdf_file)
+            )
+
+        except Exception as e:
+            return ProcessedPaper(
+                arxiv_id="local",
+                title=pdf_file.stem,
+                abstract="",
+                full_text="",
+                chunks=[],
+                total_pages=0,
+                pdf_path=str(pdf_file),
+                error=f"解析失败: {str(e)}"
+            )
+
+
 # 便捷函数
 def get_paper_full_text(arxiv_id: str) -> Optional[str]:
     """
@@ -195,6 +249,20 @@ def get_paper_full_text(arxiv_id: str) -> Optional[str]:
     if result.success:
         return result.full_text
     return None
+
+
+def process_uploaded_pdf(pdf_path: str) -> ProcessedPaper:
+    """
+    处理用户上传的 PDF（便捷接口）
+
+    Args:
+        pdf_path: PDF 文件路径
+
+    Returns:
+        ProcessedPaper: 处理结果
+    """
+    processor = PaperProcessor()
+    return processor.process_local_pdf(pdf_path)
 
 
 def get_paper_chunks(

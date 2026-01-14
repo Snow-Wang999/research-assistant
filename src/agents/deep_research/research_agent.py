@@ -3,7 +3,6 @@
 负责对单个子问题进行搜索研究，并压缩总结结果。
 参考 Open Deep Research 的 Researcher Subgraph 设计。
 """
-import httpx
 import json
 import re
 from typing import List, Optional
@@ -15,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from tools.search import UnifiedSearch
+from utils.llm_client import QwenClient
 from .decomposer import SubQuestion
 
 
@@ -38,8 +38,6 @@ class ResearchAgent:
     2. 整合 arXiv 和 OpenAlex 的结果
     3. 使用 LLM 压缩和总结发现
     """
-
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
     COMPRESS_PROMPT = """你是一个严谨的学术研究助手。你的任务是：
 1. 严格筛选与研究问题**直接相关**的论文
@@ -89,10 +87,10 @@ class ResearchAgent:
 
     def __init__(
         self,
-        deepseek_api_key: Optional[str] = None,
+        qwen_api_key: Optional[str] = None,
         searcher: Optional[UnifiedSearch] = None
     ):
-        self.api_key = deepseek_api_key
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
         self.searcher = searcher or UnifiedSearch()
 
     def research(self, sub_question: SubQuestion, limit: int = 5) -> ResearchResult:
@@ -120,7 +118,7 @@ class ResearchAgent:
             )
 
         # 2. 压缩总结
-        if self.api_key:
+        if self.llm_client:
             result = self._compress_with_llm(sub_question, papers)
         else:
             result = self._compress_fallback(sub_question, papers)
@@ -189,25 +187,15 @@ class ResearchAgent:
 
             print(f"[ResearchAgent] 调用 LLM 压缩: {sub_question.question[:30]}...")
 
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "user", "content": prompt}
-                    ],
-                    "max_tokens": 1500,  # 增加 token 限制
-                    "temperature": 0.3
-                },
-                timeout=25.0  # 增加超时时间
+            # 使用通义千问 plus 模型（论文压缩是复杂任务）
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="compress",
+                max_tokens=1500,
+                temperature=0.3,
+                timeout=25.0
             )
-            response.raise_for_status()
 
-            content = response.json()["choices"][0]["message"]["content"]
             print(f"[ResearchAgent] LLM 响应长度: {len(content)} 字符")
             parsed = self._parse_response(content)
 
@@ -332,7 +320,9 @@ class ResearchAgent:
         return sources
 
     def _compress_fallback(self, sub_question: SubQuestion, papers: List[dict]) -> ResearchResult:
-        """回退方案：简单提取"""
+        """回退方案：从摘要中提取关键信息"""
+        print("[ResearchAgent] 使用回退方案（摘要提取）")
+
         # 按引用数排序
         sorted_papers = sorted(
             papers,
@@ -340,16 +330,34 @@ class ResearchAgent:
             reverse=True
         )
 
-        # 提取关键要点（从标题）
+        # 从摘要中提取关键发现
+        findings_parts = []
         key_points = []
-        for p in sorted_papers[:3]:
-            key_points.append(p["title"][:50] + "...")
 
-        # 简单汇总
-        findings = f"共找到 {len(papers)} 篇相关论文。"
-        if sorted_papers:
-            top = sorted_papers[0]
-            findings += f" 最相关的论文是《{top['title'][:50]}...》（{top.get('year', 'N/A')}年）"
+        for i, p in enumerate(sorted_papers[:5], 1):
+            abstract = p.get("abstract", "")
+            if not abstract:
+                continue
+
+            # 提取摘要的第一句
+            first_sentence = abstract.split('.')[0].strip()
+            if len(first_sentence) > 20:
+                findings_parts.append(f"[{i}] {p['title'][:50]}... : {first_sentence}.")
+                # 关键要点：年份 + 摘要前80字
+                key_points.append(f"({p.get('year', 'N/A')}) {abstract[:80]}...")
+
+        # 构建研究发现
+        if findings_parts:
+            findings = f"基于 {len(papers)} 篇论文的摘要分析：\n\n" + "\n\n".join(findings_parts)
+        else:
+            findings = f"共找到 {len(papers)} 篇相关论文。"
+            if sorted_papers:
+                top = sorted_papers[0]
+                findings += f" 最相关的论文是《{top['title'][:50]}...》（{top.get('year', 'N/A')}年）"
+
+        # 如果没有提取到关键要点，使用标题
+        if not key_points:
+            key_points = [f"{p['title'][:60]}..." for p in sorted_papers[:3]]
 
         return ResearchResult(
             sub_question=sub_question.question,
@@ -370,10 +378,10 @@ class ParallelResearchRunner:
 
     def __init__(
         self,
-        deepseek_api_key: Optional[str] = None,
+        qwen_api_key: Optional[str] = None,
         max_workers: int = 3
     ):
-        self.deepseek_api_key = deepseek_api_key
+        self.qwen_api_key = qwen_api_key
         self.max_workers = max_workers
 
     def run(
@@ -401,7 +409,7 @@ class ParallelResearchRunner:
             future_to_question = {}
             for sq in sub_questions:
                 agent = ResearchAgent(
-                    deepseek_api_key=self.deepseek_api_key,
+                    qwen_api_key=self.qwen_api_key,
                     searcher=searcher
                 )
                 future = executor.submit(agent.research, sq, limit_per_question)

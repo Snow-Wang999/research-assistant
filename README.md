@@ -32,7 +32,7 @@
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
-# 编辑 .env 填入 DEEPSEEK_API_KEY
+# 编辑 .env 填入 QWEN_API_KEY (通义千问 API Key)
 
 # 2. 安装依赖
 uv venv && .venv\Scripts\activate && uv sync
@@ -98,7 +98,7 @@ python run.py --web --share  # Web + 公开链接
 用户复杂查询
     ↓
 ┌──────────────────────────┐
-│  SubQuestionDecomposer   │  ← 使用 DeepSeek 分解问题
+│  SubQuestionDecomposer   │  ← 使用通义千问分解问题
 │  "对比 A 和 B"            │
 │   → ["A核心", "B核心", "对比"]
 └──────────────────────────┘
@@ -192,7 +192,7 @@ python run.py --web --share  # Web + 公开链接
 
 - 深度研究模式为实验性功能，论文相关性筛选仍在优化中
 - PDF 全文获取目前仅支持 arXiv 论文
-- 需要配置 `DEEPSEEK_API_KEY` 环境变量才能使用 LLM 功能
+- 需要配置 `QWEN_API_KEY` 环境变量才能使用 LLM 功能（推荐通义千问 API）
 - 建议使用虚拟环境避免依赖冲突
 
 ## License

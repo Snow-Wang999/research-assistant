@@ -21,7 +21,7 @@ class Config:
     DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "claude-sonnet-4-20250514")
 
     # 翻译配置
-    TRANSLATOR_PROVIDER = os.getenv("TRANSLATOR_PROVIDER", "deepseek")  # deepseek 或 qwen
+    TRANSLATOR_PROVIDER = os.getenv("TRANSLATOR_PROVIDER", "qwen")  # deepseek 或 qwen（推荐）
 
     # 路径配置
     PROJECT_ROOT = Path(__file__).parent.parent.parent

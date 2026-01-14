@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 """科研助手启动脚本"""
 import argparse
+import os
 import sys
 from pathlib import Path
+
+# 禁用代理设置以避免 Gradio localhost 检测问题
+os.environ['NO_PROXY'] = 'localhost,127.0.0.1,0.0.0.0'
+os.environ['no_proxy'] = 'localhost,127.0.0.1,0.0.0.0'
 
 # 添加src目录到路径
 project_root = Path(__file__).parent
@@ -24,7 +29,9 @@ def run_web(share: bool = False, port: int = 7860):
 
     from app import create_app
     app = create_app()
-    app.launch(share=share, server_port=port)
+    # show_api=False 禁用 API 文档生成，避免 Gradio bug
+    # 不指定 server_name，使用默认的 127.0.0.1
+    app.launch(share=share, server_port=port, show_api=False)
 
 
 def main():

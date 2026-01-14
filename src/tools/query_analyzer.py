@@ -1,9 +1,14 @@
 """查询分析器 - 理解用户意图并生成多组搜索关键词"""
-import httpx
 import json
 import re
 from typing import Optional
 from dataclasses import dataclass
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.llm_client import QwenClient
 
 
 @dataclass
@@ -24,8 +29,6 @@ class QueryAnalyzer:
     2. 多组英文搜索关键词（3-5组）
     3. 搜索模式建议
     """
-
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
     SYSTEM_PROMPT = """你是一个学术搜索助手。分析用户的研究问题，生成适合学术论文搜索的关键词。
 
@@ -82,8 +85,8 @@ class QueryAnalyzer:
   "suggested_mode": "deep_research"
 }"""
 
-    def __init__(self, deepseek_api_key: Optional[str] = None):
-        self.api_key = deepseek_api_key
+    def __init__(self, qwen_api_key: Optional[str] = None):
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
 
     def _contains_chinese(self, text: str) -> bool:
         """检查文本是否包含中文"""
@@ -118,31 +121,21 @@ class QueryAnalyzer:
         Returns:
             QueryAnalysis 包含意图、关键词、建议模式
         """
-        # 如果没有 API key，使用简单回退
-        if not self.api_key:
+        # 如果没有 LLM client，使用简单回退
+        if not self.llm_client:
             return self._fallback_analyze(query)
 
         try:
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": query}
-                    ],
-                    "max_tokens": 300,
-                    "temperature": 0.3
-                },
+            # 使用通义千问 turbo 模型（意图识别是简单任务）
+            prompt = f"{self.SYSTEM_PROMPT}\n\n用户查询: {query}"
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="intent",
+                max_tokens=300,
+                temperature=0.3,
                 timeout=30.0
             )
-            response.raise_for_status()
 
-            content = response.json()["choices"][0]["message"]["content"]
             parsed = self._parse_response(content)
 
             if parsed and "keywords" in parsed:
@@ -197,7 +190,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     analyzer = QueryAnalyzer(
-        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY")
+        qwen_api_key=os.getenv("QWEN_API_KEY")
     )
 
     test_queries = [

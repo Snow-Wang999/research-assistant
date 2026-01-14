@@ -1,8 +1,13 @@
 """阅读导航 - 根据搜索结果生成论文阅读建议"""
-import httpx
 import json
 import re
 from typing import Optional
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.llm_client import QwenClient
 
 
 class ReadingGuide:
@@ -15,8 +20,6 @@ class ReadingGuide:
     - 最新进展
     - 阅读顺序建议
     """
-
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
     SYSTEM_PROMPT = """你是一个学术论文阅读顾问。根据用户的研究问题和搜索到的论文列表，生成简洁的阅读建议。
 
@@ -59,8 +62,8 @@ class ReadingGuide:
 - 序号从1开始
 - 理由要简洁"""
 
-    def __init__(self, deepseek_api_key: Optional[str] = None):
-        self.api_key = deepseek_api_key
+    def __init__(self, qwen_api_key: Optional[str] = None):
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
 
     def _format_papers_for_prompt(self, papers: list) -> str:
         """格式化论文列表用于 prompt"""
@@ -107,32 +110,22 @@ class ReadingGuide:
         if not papers:
             return {"error": "没有论文可分析"}
 
-        if not self.api_key:
+        if not self.llm_client:
             return self._fallback_guide(papers)
 
         try:
             papers_text = self._format_papers_for_prompt(papers)
 
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": f"研究问题: {query}\n\n论文列表:\n{papers_text}"}
-                    ],
-                    "max_tokens": 500,
-                    "temperature": 0.3
-                },
+            # 使用通义千问 turbo 模型（阅读导航是简单分类任务）
+            prompt = f"{self.SYSTEM_PROMPT}\n\n研究问题: {query}\n\n论文列表:\n{papers_text}"
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="screen",
+                max_tokens=500,
+                temperature=0.3,
                 timeout=30.0
             )
-            response.raise_for_status()
 
-            content = response.json()["choices"][0]["message"]["content"]
             parsed = self._parse_response(content)
 
             if parsed:
@@ -291,7 +284,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     guide_gen = ReadingGuide(
-        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY")
+        qwen_api_key=os.getenv("QWEN_API_KEY")
     )
 
     # 模拟论文数据

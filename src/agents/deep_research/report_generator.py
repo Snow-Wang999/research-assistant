@@ -3,13 +3,17 @@
 将多个子问题的研究结果整合为一份完整的研究报告。
 参考 Open Deep Research 的 final_report_generation 设计。
 """
-import httpx
 import json
 import re
 from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from utils.llm_client import QwenClient
 from .decomposer import DecompositionResult
 from .research_agent import ResearchResult
 
@@ -23,6 +27,11 @@ class ResearchReport:
     conclusion: str             # 综合结论
     sources: List[dict]         # 所有引用来源
     metadata: dict              # 元数据
+    evidences: List[dict] = None  # v0.4.0: 句级证据列表
+
+    def __post_init__(self):
+        if self.evidences is None:
+            self.evidences = []
 
 
 class ReportGenerator:
@@ -32,8 +41,6 @@ class ReportGenerator:
     将多个子问题的研究结果整合为一份结构化的研究报告。
     支持 Markdown 格式输出。
     """
-
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
     REPORT_PROMPT = """你是一个学术研究报告撰写专家。根据研究问题和各子问题的研究结果，生成一份结构化的研究报告。
 
@@ -86,8 +93,8 @@ class ReportGenerator:
 - 综述类问题：sections 应该按主题或时间线组织
 - 趋势类问题：sections 应该包括历史回顾、现状分析、未来展望"""
 
-    def __init__(self, deepseek_api_key: Optional[str] = None):
-        self.api_key = deepseek_api_key
+    def __init__(self, qwen_api_key: Optional[str] = None):
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
 
     def generate(
         self,
@@ -107,7 +114,7 @@ class ReportGenerator:
         if not research_results:
             return self._empty_report(decomposition.original_query)
 
-        if self.api_key:
+        if self.llm_client:
             report = self._generate_with_llm(decomposition, research_results)
         else:
             report = self._generate_fallback(decomposition, research_results)
@@ -152,6 +159,23 @@ class ReportGenerator:
 
         return all_papers
 
+    def _collect_all_evidences(self, results: List[ResearchResult]) -> List[dict]:
+        """收集所有句级证据（仅 FulltextResearchResult 有）"""
+        all_evidences = []
+        for result in results:
+            # 检查是否是 FulltextResearchResult（有 evidences 属性）
+            if hasattr(result, 'evidences') and result.evidences:
+                for evidence in result.evidences:
+                    all_evidences.append({
+                        "sentence": evidence.sentence,
+                        "page": evidence.page,
+                        "position": evidence.position,
+                        "paper_title": evidence.paper_title,
+                        "paper_index": evidence.paper_index,
+                        "sub_question": result.sub_question
+                    })
+        return all_evidences
+
     def _format_paper_list(self, papers: List[dict]) -> str:
         """格式化论文列表，带编号"""
         if not papers:
@@ -192,25 +216,14 @@ class ReportGenerator:
                 paper_list=paper_list_text
             )
 
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "user", "content": prompt}
-                    ],
-                    "max_tokens": 2000,
-                    "temperature": 0.3
-                },
-                timeout=20.0  # 缩短API超时
+            # 使用通义千问 plus 模型（报告生成是复杂任务）
+            content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="report",
+                max_tokens=2000,
+                temperature=0.3,
+                timeout=20.0
             )
-            response.raise_for_status()
-
-            content = response.json()["choices"][0]["message"]["content"]
             parsed = self._parse_response(content)
 
             if parsed:
@@ -247,6 +260,15 @@ class ReportGenerator:
         # 使用统一的论文收集方法，保持编号一致性
         all_sources = self._collect_all_papers(research_results)
 
+        # 收集句级证据
+        all_evidences = self._collect_all_evidences(research_results)
+
+        # 检查是否有全文研究结果
+        has_fulltext = any(
+            hasattr(r, 'papers_with_fulltext') and r.papers_with_fulltext > 0
+            for r in research_results
+        )
+
         return ResearchReport(
             title=parsed.get("title", decomposition.original_query),
             overview=parsed.get("overview", ""),
@@ -260,8 +282,11 @@ class ReportGenerator:
                 "sub_questions_count": len(decomposition.sub_questions),
                 "total_papers": sum(r.papers_found for r in research_results),
                 "generated_at": datetime.now().isoformat(),
-                "key_takeaways": parsed.get("key_takeaways", [])
-            }
+                "key_takeaways": parsed.get("key_takeaways", []),
+                "has_fulltext": has_fulltext,
+                "evidences_count": len(all_evidences)
+            },
+            evidences=all_evidences
         )
 
     def _generate_fallback(
@@ -269,13 +294,24 @@ class ReportGenerator:
         decomposition: DecompositionResult,
         research_results: List[ResearchResult]
     ) -> ResearchReport:
-        """回退方案：简单整合"""
+        """回退方案：从研究结果中整合报告"""
+        print("[ReportGenerator] 使用回退方案生成报告")
+
         sections = []
-        for result in research_results:
+        for i, result in enumerate(research_results, 1):
+            # 使用更好的章节标题
+            heading = f"子问题{i}: {result.sub_question[:40]}..."
+
+            # 内容使用压缩后的发现
+            content = result.compressed_findings if result.compressed_findings else f"基于 {result.papers_found} 篇论文的分析。"
+
+            # 关键发现
+            key_findings = result.key_points if result.key_points else []
+
             sections.append({
-                "heading": result.sub_question[:50],
-                "content": result.compressed_findings,
-                "key_findings": result.key_points
+                "heading": heading,
+                "content": content,
+                "key_findings": key_findings
             })
 
         # 收集所有来源
@@ -283,15 +319,30 @@ class ReportGenerator:
         for result in research_results:
             all_sources.extend(result.sources)
 
-        # 简单概述
+        # 收集句级证据
+        all_evidences = self._collect_all_evidences(research_results)
+
+        # 概述：包含更多信息
         total_papers = sum(r.papers_found for r in research_results)
         overview = f"本研究围绕「{decomposition.original_query}」展开，分解为 {len(research_results)} 个子问题进行研究，共检索到 {total_papers} 篇相关论文。"
 
-        # 简单结论
+        # 如果有研究策略，加入概述
+        if decomposition.research_strategy:
+            overview += f"\n\n研究策略：{decomposition.research_strategy}"
+
+        # 结论：整合所有关键要点
         all_points = []
         for result in research_results:
-            all_points.extend(result.key_points[:2])
-        conclusion = "综合研究发现：" + "；".join(all_points[:5]) + "。"
+            # 只取前2个要点，避免过长
+            for point in result.key_points[:2]:
+                # 过滤掉只是标题的要点
+                if not point.endswith("...") or len(point) > 60:
+                    all_points.append(point)
+
+        if all_points:
+            conclusion = "综合研究发现：\n\n" + "\n".join(f"• {p}" for p in all_points[:6])
+        else:
+            conclusion = f"本研究共分析了 {total_papers} 篇相关论文，为「{decomposition.original_query}」提供了初步参考。"
 
         return ResearchReport(
             title=f"关于「{decomposition.original_query}」的研究报告",
@@ -305,7 +356,8 @@ class ReportGenerator:
                 "sub_questions_count": len(decomposition.sub_questions),
                 "total_papers": total_papers,
                 "generated_at": datetime.now().isoformat()
-            }
+            },
+            evidences=all_evidences
         )
 
     def _empty_report(self, query: str) -> ResearchReport:
@@ -319,7 +371,8 @@ class ReportGenerator:
             metadata={
                 "original_query": query,
                 "error": "No research results"
-            }
+            },
+            evidences=[]
         )
 
     def format_as_markdown(self, report: ResearchReport) -> str:
@@ -379,6 +432,29 @@ class ReportGenerator:
         lines.append(report.conclusion)
         lines.append("")
 
+        # 句级证据（全文研究模式）
+        if report.evidences:
+            lines.append("## 📌 支持证据")
+            lines.append("")
+            lines.append("> *以下是从论文原文中摘录的关键支持句，可用于验证报告中的结论。*")
+            lines.append("")
+
+            # 按论文分组显示
+            evidence_by_paper = {}
+            for ev in report.evidences:
+                paper_title = ev.get("paper_title", "未知论文")
+                if paper_title not in evidence_by_paper:
+                    evidence_by_paper[paper_title] = []
+                evidence_by_paper[paper_title].append(ev)
+
+            for paper_title, evidences in evidence_by_paper.items():
+                lines.append(f"**{paper_title[:60]}...**")
+                for ev in evidences[:3]:  # 每篇论文最多显示3条
+                    sentence = ev.get("sentence", "")[:200]
+                    page = ev.get("page", "?")
+                    lines.append(f"- 📄 *\"{sentence}...\"* (第{page}页)")
+                lines.append("")
+
         # 引用来源
         if report.sources:
             lines.append("## 参考来源")
@@ -388,6 +464,8 @@ class ReportGenerator:
                 year = src.get("year", "")
                 url = src.get("url", "")
                 source = src.get("source", "").upper()
+                arxiv_id = src.get("arxiv_id", "")
+                has_fulltext = src.get("has_fulltext", False)
 
                 # 格式: [编号] **标题** (来源, 年份) [链接]
                 line = f"**{i}. {title}**"
@@ -396,9 +474,15 @@ class ReportGenerator:
                     meta_parts.append(source)
                 if year:
                     meta_parts.append(str(year))
+                if has_fulltext:
+                    meta_parts.append("📄全文")
                 if meta_parts:
                     line += f" ({', '.join(meta_parts)})"
-                if url:
+
+                # arXiv 链接
+                if arxiv_id:
+                    line += f" → [arXiv](https://arxiv.org/abs/{arxiv_id})"
+                elif url:
                     line += f" → [查看论文]({url})"
                 lines.append(line)
                 lines.append("")

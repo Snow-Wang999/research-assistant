@@ -4,7 +4,6 @@
 v0.4.0 新增。
 """
 
-import httpx
 import json
 import re
 from typing import List, Optional
@@ -18,7 +17,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from tools.search import UnifiedSearch
 from tools.paper_screener import PaperScreener, ScreeningResult, ScreenedPaper
 from tools.pdf import PaperProcessor, ProcessedPaper
+from utils.llm_client import QwenClient
 from .decomposer import SubQuestion
+
+
+@dataclass
+class SupportingEvidence:
+    """支持证据（句级引用）"""
+    sentence: str           # 支持句原文
+    page: int               # 页码
+    position: str           # 位置标签 (@@page\tx0\tx1\ty0\ty1##)
+    paper_title: str        # 来源论文标题
+    paper_index: int        # 论文编号（用于引用标注）
 
 
 @dataclass
@@ -32,6 +42,11 @@ class FulltextResearchResult:
     compressed_findings: str  # 压缩后的研究发现
     key_points: List[str]     # 关键要点
     sources: List[dict]       # 引用来源（含全文位置）
+    evidences: List[SupportingEvidence] = None  # 句级证据列表
+
+    def __post_init__(self):
+        if self.evidences is None:
+            self.evidences = []
 
     @property
     def papers_found(self) -> int:
@@ -50,50 +65,62 @@ class FulltextResearchAgent:
     4. 使用全文进行 LLM 压缩
     """
 
-    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-
     COMPRESS_PROMPT = """你是一个严谨的学术研究助手。基于论文全文内容回答研究问题。
 
 研究问题：{question}
 研究目的：{purpose}
 
-论文内容：
+论文内容（每篇论文标注为 [P1], [P2] 等）：
 {papers_content}
 
-请基于以上论文内容，提供详细的研究发现。
+请基于以上论文内容，提供详细的研究发现，并引用具体的支持句。
 
 输出 JSON 格式：
 {{
-  "findings": "综合研究发现（200-400字，必须有具体内容支撑，引用具体论文）",
+  "findings": "综合研究发现（200-400字，在具体观点后标注来源如[P1][P2]）",
   "key_points": [
-    "关键要点1（来自论文的具体发现，标注来源）",
-    "关键要点2",
-    "关键要点3",
+    "关键要点1 [P1]",
+    "关键要点2 [P2]",
+    "关键要点3 [P1][P3]",
     "关键要点4"
   ],
   "cited_papers": [
     {{
+      "paper_id": "P1",
       "title": "论文标题",
       "key_contribution": "该论文对回答问题的核心贡献（30字内）"
+    }}
+  ],
+  "supporting_sentences": [
+    {{
+      "paper_id": "P1",
+      "sentence": "从论文中摘录的原句（支持某个关键发现的证据）",
+      "supports": "该句支持的观点（简述）"
+    }},
+    {{
+      "paper_id": "P2",
+      "sentence": "另一个支持句...",
+      "supports": "支持的观点"
     }}
   ]
 }}
 
 要求：
-1. findings 必须基于论文全文的实际内容
-2. 每个 key_point 都应该有论文支撑
-3. 引用具体数据、方法、结论时要准确"""
+1. findings 必须基于论文全文的实际内容，标注来源 [P1][P2]
+2. 每个 key_point 都应该标注论文来源
+3. supporting_sentences 必须是论文中的原句，用于证据追溯
+4. 每篇论文至少提供1-2个支持句"""
 
     def __init__(
         self,
-        deepseek_api_key: Optional[str] = None,
+        qwen_api_key: Optional[str] = None,
         searcher: Optional[UnifiedSearch] = None,
         max_fulltext_per_question: int = 5
     ):
-        self.api_key = deepseek_api_key
+        self.llm_client = QwenClient(api_key=qwen_api_key) if qwen_api_key else None
         self.searcher = searcher or UnifiedSearch()
         self.screener = PaperScreener(
-            deepseek_api_key=deepseek_api_key,
+            qwen_api_key=qwen_api_key,
             max_fulltext=max_fulltext_per_question
         )
         self.paper_processor = PaperProcessor()
@@ -200,20 +227,42 @@ class FulltextResearchAgent:
         return processed
 
     def _format_fulltext_for_prompt(self, processed_papers: List[ProcessedPaper]) -> str:
-        """格式化全文用于 prompt"""
+        """格式化全文用于 prompt，添加论文编号标记 [P1], [P2] 等"""
         parts = []
         for i, pp in enumerate(processed_papers, 1):
             # 限制每篇论文的全文长度
             fulltext = pp.full_text[:8000] if len(pp.full_text) > 8000 else pp.full_text
 
             parts.append(
-                f"=== 论文 {i}: {pp.title} ===\n"
+                f"=== [P{i}] {pp.title} ===\n"
                 f"arXiv ID: {pp.arxiv_id}\n"
                 f"摘要: {pp.abstract[:500]}...\n\n"
                 f"全文内容:\n{fulltext}\n"
             )
 
         return "\n\n".join(parts)
+
+    def _extract_sentences_with_positions(self, processed_paper: ProcessedPaper, paper_index: int) -> List[dict]:
+        """从论文中提取句子及其位置信息"""
+        sentences = []
+        for chunk in processed_paper.chunks:
+            # 获取该 chunk 的页码
+            page = chunk.pages[0] if chunk.pages else 1
+            position_tag = chunk.position_tags[0] if chunk.position_tags else ""
+
+            # 简单句子分割
+            chunk_sentences = re.split(r'(?<=[.!?。！？])\s+', chunk.text)
+            for sent in chunk_sentences:
+                sent = sent.strip()
+                if len(sent) > 20:  # 过滤太短的句子
+                    sentences.append({
+                        "sentence": sent,
+                        "page": page,
+                        "position": position_tag,
+                        "paper_index": paper_index,
+                        "paper_title": processed_paper.title
+                    })
+        return sentences
 
     def _format_abstracts_for_prompt(self, screened_papers: List[ScreenedPaper]) -> str:
         """格式化摘要用于 prompt"""
@@ -235,7 +284,7 @@ class FulltextResearchAgent:
         screening_result: ScreeningResult
     ) -> FulltextResearchResult:
         """使用全文进行研究"""
-        if not self.api_key:
+        if not self.llm_client:
             return self._fallback_result(sub_question, processed_papers, screening_result)
 
         try:
@@ -247,27 +296,24 @@ class FulltextResearchAgent:
                 papers_content=content
             )
 
-            response = httpx.post(
-                self.DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 2000,
-                    "temperature": 0.3
-                },
-                timeout=45.0
+            # 使用通义千问 plus 模型（全文压缩是复杂任务）
+            result_content = self.llm_client.chat(
+                prompt=prompt,
+                task_type="compress",
+                max_tokens=2500,
+                temperature=0.3,
+                timeout=60.0
             )
-            response.raise_for_status()
 
-            result_content = response.json()["choices"][0]["message"]["content"]
             parsed = self._parse_response(result_content)
 
             if parsed:
-                sources = self._build_sources(processed_papers, parsed.get("cited_papers", []))
+                # 构建来源和句级证据
+                sources, evidences = self._build_sources(
+                    processed_papers,
+                    parsed.get("cited_papers", []),
+                    parsed.get("supporting_sentences", [])
+                )
 
                 return FulltextResearchResult(
                     sub_question=sub_question.question,
@@ -277,7 +323,8 @@ class FulltextResearchAgent:
                     papers_with_fulltext=len(processed_papers),
                     compressed_findings=parsed.get("findings", ""),
                     key_points=parsed.get("key_points", []),
-                    sources=sources
+                    sources=sources,
+                    evidences=evidences
                 )
 
         except Exception as e:
@@ -304,7 +351,7 @@ class FulltextResearchAgent:
             relevant_papers = screening_result.screened_papers[:5]
 
         # 调用 LLM 压缩（使用摘要而非全文）
-        if self.api_key and relevant_papers:
+        if self.llm_client and relevant_papers:
             try:
                 papers_text = self._format_abstracts_for_prompt(relevant_papers)
                 prompt = self.COMPRESS_PROMPT.format(
@@ -313,23 +360,15 @@ class FulltextResearchAgent:
                     papers_content=papers_text
                 )
 
-                response = httpx.post(
-                    self.DEEPSEEK_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 1500,
-                        "temperature": 0.3
-                    },
+                # 使用通义千问 plus 模型（摘要压缩也是复杂任务）
+                content = self.llm_client.chat(
+                    prompt=prompt,
+                    task_type="compress",
+                    max_tokens=1500,
+                    temperature=0.3,
                     timeout=30.0
                 )
-                response.raise_for_status()
 
-                content = response.json()["choices"][0]["message"]["content"]
                 parsed = self._parse_response(content)
 
                 if parsed:
@@ -337,16 +376,16 @@ class FulltextResearchAgent:
                     key_points = parsed.get("key_points", [])
                     print(f"[FulltextAgent] LLM 压缩成功，findings 长度: {len(findings)}")
                 else:
-                    findings = f"基于 {len(relevant_papers)} 篇相关论文的摘要分析。"
-                    key_points = [f"{p.title[:50]}..." for p in relevant_papers[:3]]
+                    print("[FulltextAgent] JSON 解析失败，使用摘要提取")
+                    findings, key_points = self._extract_from_abstracts(relevant_papers)
 
             except Exception as e:
-                print(f"[FulltextAgent] LLM 压缩失败: {e}")
-                findings = f"基于 {len(relevant_papers)} 篇相关论文的摘要分析。"
-                key_points = [f"{p.title[:50]}..." for p in relevant_papers[:3]]
+                print(f"[FulltextAgent] LLM 压缩失败: {type(e).__name__}: {e}")
+                # 回退：从摘要中提取关键内容
+                findings, key_points = self._extract_from_abstracts(relevant_papers)
         else:
-            findings = f"基于 {len(relevant_papers)} 篇相关论文的摘要分析。"
-            key_points = [f"{p.title[:50]}..." for p in relevant_papers[:3]]
+            print("[FulltextAgent] 无 API Key，使用摘要提取")
+            findings, key_points = self._extract_from_abstracts(relevant_papers)
 
         sources = [
             {
@@ -375,17 +414,29 @@ class FulltextResearchAgent:
     def _build_sources(
         self,
         processed_papers: List[ProcessedPaper],
-        cited_papers: List[dict]
-    ) -> List[dict]:
-        """构建来源列表"""
+        cited_papers: List[dict],
+        supporting_sentences: List[dict] = None
+    ) -> tuple[List[dict], List[SupportingEvidence]]:
+        """构建来源列表和句级证据"""
         sources = []
-        for pp in processed_papers:
+        evidences = []
+
+        # 建立论文索引映射
+        paper_index_map = {}  # paper_id (P1, P2) -> index
+        for i, pp in enumerate(processed_papers, 1):
+            paper_index_map[f"P{i}"] = i
+
+        for i, pp in enumerate(processed_papers, 1):
             # 查找引用信息
             contribution = ""
+            paper_id = f"P{i}"
             for cp in cited_papers:
-                if cp.get("title", "").lower() in pp.title.lower():
+                if cp.get("paper_id") == paper_id or cp.get("title", "").lower() in pp.title.lower():
                     contribution = cp.get("key_contribution", "")
                     break
+
+            # 提取该论文的所有句子位置信息
+            all_sentences = self._extract_sentences_with_positions(pp, i)
 
             sources.append({
                 "title": pp.title,
@@ -394,10 +445,89 @@ class FulltextResearchAgent:
                 "has_fulltext": True,
                 "fulltext_length": len(pp.full_text),
                 "chunks_count": len(pp.chunks),
-                "contribution": contribution
+                "contribution": contribution,
+                "paper_id": paper_id,
+                "sentences_count": len(all_sentences)
             })
 
-        return sources
+            # 从 LLM 返回的 supporting_sentences 中匹配该论文的证据
+            if supporting_sentences:
+                for ss in supporting_sentences:
+                    if ss.get("paper_id") == paper_id:
+                        # 尝试在论文句子中找到匹配的位置
+                        sentence_text = ss.get("sentence", "")
+                        page = 1
+                        position = ""
+
+                        # 模糊匹配找到最相近的句子
+                        for sent_info in all_sentences:
+                            if self._sentence_similarity(sentence_text, sent_info["sentence"]) > 0.5:
+                                page = sent_info["page"]
+                                position = sent_info["position"]
+                                break
+
+                        evidences.append(SupportingEvidence(
+                            sentence=sentence_text,
+                            page=page,
+                            position=position,
+                            paper_title=pp.title,
+                            paper_index=i
+                        ))
+
+        return sources, evidences
+
+    def _extract_from_abstracts(self, papers: List[ScreenedPaper]) -> tuple[str, List[str]]:
+        """从论文摘要中提取关键发现（回退方案）
+
+        Args:
+            papers: 筛选后的论文列表
+
+        Returns:
+            (findings, key_points): 研究发现和关键要点
+        """
+        if not papers:
+            return "未找到相关论文。", ["无可用信息"]
+
+        # 构建研究发现：汇总摘要的关键句
+        findings_parts = []
+        key_points = []
+
+        for i, p in enumerate(papers[:5], 1):  # 最多使用5篇
+            abstract = p.abstract or ""
+            if not abstract:
+                continue
+
+            # 提取摘要的第一句（通常是核心内容）
+            first_sentence = abstract.split('.')[0].strip()
+            if len(first_sentence) > 20:
+                # 添加到发现中
+                findings_parts.append(f"[{i}] {first_sentence}.")
+
+                # 提取关键要点：使用论文的相关性描述或摘要前50字
+                if p.relevance_reason:
+                    key_points.append(f"{p.title[:40]}... - {p.relevance_reason}")
+                else:
+                    key_points.append(f"{p.title[:40]}... ({p.year})")
+
+        if findings_parts:
+            findings = f"基于 {len(papers)} 篇相关论文的摘要分析：\n\n" + "\n\n".join(findings_parts)
+        else:
+            findings = f"共检索到 {len(papers)} 篇相关论文，但摘要信息不完整。"
+
+        if not key_points:
+            key_points = [f"{p.title[:50]}..." for p in papers[:3]]
+
+        return findings, key_points
+
+    def _sentence_similarity(self, s1: str, s2: str) -> float:
+        """简单的句子相似度计算（基于词重叠）"""
+        words1 = set(s1.lower().split())
+        words2 = set(s2.lower().split())
+        if not words1 or not words2:
+            return 0.0
+        intersection = words1 & words2
+        union = words1 | words2
+        return len(intersection) / len(union) if union else 0.0
 
     def _parse_response(self, content: str) -> Optional[dict]:
         """解析 LLM 响应"""
@@ -425,7 +555,8 @@ class FulltextResearchAgent:
             papers_with_fulltext=0,
             compressed_findings="未找到相关论文",
             key_points=["无法获取相关信息"],
-            sources=[]
+            sources=[],
+            evidences=[]
         )
 
     def _fallback_result(
@@ -443,9 +574,10 @@ class FulltextResearchAgent:
                 "title": pp.title,
                 "arxiv_id": pp.arxiv_id,
                 "has_fulltext": True,
-                "fulltext_length": len(pp.full_text)
+                "fulltext_length": len(pp.full_text),
+                "paper_id": f"P{i}"
             }
-            for pp in processed_papers
+            for i, pp in enumerate(processed_papers, 1)
         ]
 
         return FulltextResearchResult(
@@ -456,7 +588,8 @@ class FulltextResearchAgent:
             papers_with_fulltext=len(processed_papers),
             compressed_findings=findings,
             key_points=key_points,
-            sources=sources
+            sources=sources,
+            evidences=[]
         )
 
 
@@ -465,11 +598,11 @@ class ParallelFulltextResearchRunner:
 
     def __init__(
         self,
-        deepseek_api_key: Optional[str] = None,
+        qwen_api_key: Optional[str] = None,
         max_workers: int = 2,  # 全文研究较重，减少并发
         max_fulltext_per_question: int = 5
     ):
-        self.deepseek_api_key = deepseek_api_key
+        self.qwen_api_key = qwen_api_key
         self.max_workers = max_workers
         self.max_fulltext = max_fulltext_per_question
 
@@ -487,7 +620,7 @@ class ParallelFulltextResearchRunner:
 
             for sq in sub_questions:
                 agent = FulltextResearchAgent(
-                    deepseek_api_key=self.deepseek_api_key,
+                    qwen_api_key=self.qwen_api_key,
                     searcher=searcher,
                     max_fulltext_per_question=self.max_fulltext
                 )
@@ -510,7 +643,8 @@ class ParallelFulltextResearchRunner:
                         papers_with_fulltext=0,
                         compressed_findings="研究过程出错",
                         key_points=[],
-                        sources=[]
+                        sources=[],
+                        evidences=[]
                     ))
 
         return results

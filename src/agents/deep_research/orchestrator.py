@@ -61,7 +61,7 @@ class DeepResearchOrchestrator:
 
     使用方式：
     ```python
-    orchestrator = DeepResearchOrchestrator(deepseek_api_key="...")
+    orchestrator = DeepResearchOrchestrator(qwen_api_key="...")
     result = orchestrator.run("对比 Transformer 和 RNN")
     print(result.report_markdown)
     ```
@@ -69,7 +69,7 @@ class DeepResearchOrchestrator:
 
     def __init__(
         self,
-        deepseek_api_key: Optional[str] = None,
+        qwen_api_key: Optional[str] = None,
         config: Optional[DeepResearchConfig] = None,
         progress_callback: Optional[Callable[[str, float], None]] = None
     ):
@@ -77,22 +77,22 @@ class DeepResearchOrchestrator:
         初始化协调器
 
         Args:
-            deepseek_api_key: DeepSeek API Key
+            qwen_api_key: 通义千问 API Key
             config: 研究配置
             progress_callback: 进度回调函数 (message, progress_ratio)
         """
-        self.api_key = deepseek_api_key
+        self.api_key = qwen_api_key
         self.config = config or DeepResearchConfig()
         self.progress_callback = progress_callback
 
         # 初始化各组件
-        self.decomposer = SubQuestionDecomposer(deepseek_api_key=deepseek_api_key)
+        self.decomposer = SubQuestionDecomposer(qwen_api_key=qwen_api_key)
 
         # 根据配置选择研究模式
         if self.config.use_fulltext:
             # v0.4.0: 全文研究模式
             self.research_runner = ParallelFulltextResearchRunner(
-                deepseek_api_key=deepseek_api_key,
+                qwen_api_key=qwen_api_key,
                 max_workers=min(2, self.config.max_parallel_workers),  # 全文模式减少并发
                 max_fulltext_per_question=self.config.max_fulltext_per_question
             )
@@ -100,12 +100,12 @@ class DeepResearchOrchestrator:
         else:
             # 原有摘要研究模式
             self.research_runner = ParallelResearchRunner(
-                deepseek_api_key=deepseek_api_key,
+                qwen_api_key=qwen_api_key,
                 max_workers=self.config.max_parallel_workers
             )
             self.use_fulltext = False
 
-        self.report_generator = ReportGenerator(deepseek_api_key=deepseek_api_key)
+        self.report_generator = ReportGenerator(qwen_api_key=qwen_api_key)
 
     def _report_progress(self, message: str, progress: float):
         """报告进度"""
@@ -304,7 +304,7 @@ class DeepResearchOrchestrator:
 # 便捷函数
 def deep_research(
     query: str,
-    deepseek_api_key: Optional[str] = None,
+    qwen_api_key: Optional[str] = None,
     progress_callback: Optional[Callable[[str, float], None]] = None,
     use_fulltext: bool = False  # v0.4.0: 全文研究模式
 ) -> DeepResearchOutput:
@@ -313,7 +313,7 @@ def deep_research(
 
     Args:
         query: 研究问题
-        deepseek_api_key: API Key
+        qwen_api_key: 通义千问 API Key
         progress_callback: 进度回调
         use_fulltext: 是否使用全文研究（下载 PDF）
 
@@ -336,7 +336,7 @@ def deep_research(
         timeout_seconds=180 if use_fulltext else 120  # 全文模式更长超时
     )
     orchestrator = DeepResearchOrchestrator(
-        deepseek_api_key=deepseek_api_key,
+        qwen_api_key=qwen_api_key,
         config=config,
         progress_callback=progress_callback
     )
@@ -360,7 +360,7 @@ if __name__ == "__main__":
     # 使用便捷函数
     result = deep_research(
         query=test_query,
-        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY")
+        qwen_api_key=os.getenv("QWEN_API_KEY")
     )
 
     print("\n" + "=" * 60)
