@@ -19,8 +19,12 @@ ENV/
 
 # Logs & Data
 logs/
-data/*.pdf
+data/
 *.log
+
+# Temp files
+tmpclaude-*
+nul
 
 # Build
 dist/

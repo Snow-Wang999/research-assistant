@@ -82,9 +82,10 @@ class ResearchAgent:
 
 要求：
 1. relevant_papers 只包含 relevance_score >= 4 的论文（严格筛选）
-2. 优先选择高引用、权威的论文
-3. findings 必须基于所选论文的实际内容，不要编造
-4. 如果没有高度相关的论文，诚实说明"""
+2. **平衡新旧论文**：ARXIV论文代表最新研究进展，OPENALEX论文代表经典文献，两者都要考虑
+3. **不要只看引用数**：新论文（ARXIV）引用数低但可能更切题，不要因为引用数低就排除
+4. findings 必须基于所选论文的实际内容，不要编造
+5. 如果没有高度相关的论文，诚实说明"""
 
     def __init__(
         self,
@@ -230,6 +231,25 @@ class ResearchAgent:
                             })
                             break
 
+                # 检查来源平衡：如果 LLM 筛选后没有 arXiv 论文，补充一些
+                arxiv_in_sources = [s for s in sources if s.get("source") == "arxiv"]
+                if not arxiv_in_sources:
+                    # 从原始列表中找 arXiv 论文补充
+                    arxiv_papers = [p for p in papers if p.get("source") == "arxiv"]
+                    arxiv_papers.sort(key=lambda x: x.get("year", 0) or 0, reverse=True)
+                    for p in arxiv_papers[:2]:  # 补充最多2篇最新的 arXiv 论文
+                        sources.append({
+                            "title": p["title"],
+                            "authors": p.get("authors", []),
+                            "year": p.get("year"),
+                            "abstract": p.get("abstract", ""),
+                            "url": p.get("url"),
+                            "source": p.get("source"),
+                            "citation_count": p.get("citation_count"),
+                            "relevance": "最新研究（补充）"
+                        })
+                    print(f"[ResearchAgent] 补充了 {min(2, len(arxiv_papers))} 篇 arXiv 论文")
+
                 print(f"[ResearchAgent] 筛选出 {len(sources)} 篇相关论文")
                 return ResearchResult(
                     sub_question=sub_question.question,
@@ -264,15 +284,29 @@ class ResearchAgent:
         return None
 
     def _extract_top_sources(self, papers: List[dict], limit: int = 5) -> List[dict]:
-        """提取最重要的来源（按引用数，保留完整信息）"""
-        sorted_papers = sorted(
-            papers,
-            key=lambda x: x.get("citation_count", 0) or 0,
-            reverse=True
-        )
+        """提取最重要的来源（平衡 arXiv 和 OpenAlex）"""
+        # 分离 arXiv 和 OpenAlex 论文
+        arxiv_papers = [p for p in papers if p.get("source") == "arxiv"]
+        openalex_papers = [p for p in papers if p.get("source") != "arxiv"]
+
+        # arXiv 按年份排序（最新优先）
+        arxiv_papers.sort(key=lambda x: x.get("year", 0) or 0, reverse=True)
+        # OpenAlex 按引用数排序
+        openalex_papers.sort(key=lambda x: x.get("citation_count", 0) or 0, reverse=True)
+
+        # 平衡选择：各取一半
+        half_limit = max(1, limit // 2)
+        selected_arxiv = arxiv_papers[:half_limit]
+        selected_openalex = openalex_papers[:limit - len(selected_arxiv)]
+
+        # 如果某一来源不足，用另一来源补充
+        if len(selected_arxiv) < half_limit:
+            selected_openalex = openalex_papers[:limit - len(selected_arxiv)]
+        if len(selected_openalex) < limit - half_limit:
+            selected_arxiv = arxiv_papers[:limit - len(selected_openalex)]
 
         sources = []
-        for p in sorted_papers[:limit]:
+        for p in selected_arxiv:
             sources.append({
                 "title": p["title"],
                 "authors": p.get("authors", []),
@@ -281,7 +315,18 @@ class ResearchAgent:
                 "url": p.get("url"),
                 "source": p.get("source"),
                 "citation_count": p.get("citation_count"),
-                "relevance": "高引用论文"
+                "relevance": "最新研究"
+            })
+        for p in selected_openalex:
+            sources.append({
+                "title": p["title"],
+                "authors": p.get("authors", []),
+                "year": p.get("year"),
+                "abstract": p.get("abstract", ""),
+                "url": p.get("url"),
+                "source": p.get("source"),
+                "citation_count": p.get("citation_count"),
+                "relevance": "经典文献"
             })
 
         return sources

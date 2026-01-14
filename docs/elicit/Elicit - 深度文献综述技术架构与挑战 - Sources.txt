@@ -1,0 +1,80 @@
+﻿Cappelli, F., Colavizza, G., & Peroni, S. (2025). Recent Developments in Deep Learning-based Author Name Disambiguation. In Italian Research Conference on Digital Library Management Systems (Version 1). arXiv. https://doi.org/10.48550/ARXIV.2503.13448
+
+Cappelli, F., Colavizza, G., & Peroni, S. (2025). Deep Learning Approaches to Author Name Disambiguation: A Survey. International Journal on Digital Libraries, 26(4). https://doi.org/10.1007/s00799-025-00428-6
+
+Yadav, P., Remala, N., & Pervin, N. (2019). RecCite: A Hybrid Approach to Recommend Potential Papers. 2019 IEEE International Conference on Big Data (Big Data). https://doi.org/10.1109/BigData47090.2019.9006220
+
+van de Schoot, R., Messina Coimbra, B., Evenhuis, T., Lombaers, P., Weijdema, F., de Bruin, L., Neeleman, R., Grandfield, E., Sijbrandij, M., Teijema, J. J., Jalsovec, E., Bron, M. P., Winter, S., de Bruin, J., & van Zuiden, M. (2025). The hunt for the last relevant paper: blending the best of humans and AI. European Journal of Psychotraumatology, 16(1). https://doi.org/10.1080/20008066.2025.2546214
+
+Pham, X.-L., & Le, T. T. (2024). Bibliometric analysis and systematic review of research on expert finding a PRISMA-guided approach. ˜The Œinternational Arab Journal of Information Technology. https://doi.org/10.34028/iajit/21/4/9
+
+Tsang, Y. P., Wu, C. H., Ip, W. H., & Shiau, W.-L. (2021). Exploring the intellectual cores of the blockchain–Internet of Things (BIoT). Journal of Enterprise Information Management, 34(5), 1287–1317. https://doi.org/10.1108/jeim-10-2020-0395
+
+Lu, Y. (2024). Application of AI in the Field of Documentary Heritage: A Review of the Literature. Journal of Artificial Intelligence Research, 1(2), 15–21. https://doi.org/10.70891/jair.2024.110005
+
+Feng, S., & Law, N. (2021). Mapping Artificial Intelligence in Education Research: a Network‐based Keyword Analysis. International Journal of Artificial Intelligence in Education. https://doi.org/10.1007/s40593-021-00244-4
+
+Wang, Y., Zhang, C., & Li, K. (2022). A review on method entities in the academic literature: extraction, evaluation, and application. Scientometrics. https://doi.org/10.1007/s11192-022-04332-7
+
+Morooka, F. E., Junior, A. M., Sigahi, T. F., Pinto, J. de S., Rampasso, I., & Anholon, R. (2023). Deep Learning and Autonomous Vehicles: Strategic Themes, Applications, and Research Agenda Using SciMAT and Content-Centric Analysis, a Systematic Review. Machine Learning and Knowledge Extraction. https://doi.org/10.3390/make5030041
+
+Hirata, E., & Hansen, A. S. (2024). Identifying Key Issues in Integration of Autonomous Ships in Container Ports: A Machine-Learning-Based Systematic Literature Review. Logistics. https://doi.org/10.3390/logistics8010023
+
+Liu, Z., Wang, S., Zhang, Y., Feng, Y., Liu, J., & Zhu, H. (2023). Artificial Intelligence in Food Safety: A Decade Review and Bibliometric Analysis. Foods, 12(6), 1242. https://doi.org/10.3390/foods12061242
+
+Canaparo, M., Todeschini, S. C., & Ronchieri, E. (2023). Transformer-based Architecture for Assisting Title and Abstract Screening of a Systematic Review. 2023 IEEE Nuclear Science Symposium, Medical Imaging Conference and International Symposium on Room-Temperature Semiconductor Detectors (NSS MIC RTSD). https://doi.org/10.1109/NSSMICRTSD49126.2023.10338654
+
+Brown, A., Roman, M., & Devereux, B. (2025). A Systematic Literature Review of Retrieval-Augmented Generation: Techniques, Metrics, and Challenges. In arXiv.org (Version 3). arXiv. https://doi.org/10.48550/ARXIV.2508.06401
+
+Arifah, I. (2025). NAVIGATING TRENDS AND TENSIONS IN DIGITAL TRANSFORMATION: A SYSTEMATIC REVIEW. Proceeding of The 5th ASPIKOM  International  CommunicationConference (AICCON 2025). https://doi.org/10.31947/aiccon2025.v1i1.47744
+
+Ma, M. (2024). Literature omics: a new approach to systematic review about pose estimation. Symposium on Advances in Electrical, Electronics and Computer Engineering. https://doi.org/10.1117/12.3034519
+
+Thilakaratne, M., Falkner, K., & Atapattu, T. (2019). A Systematic Review on Literature-based Discovery. ACM Computing Surveys. https://doi.org/10.1145/3365756
+
+Scherbakov, D., Hubig, N., Jansari, V., Bakumenko, A., & Lenert, L. A. (2025). The emergence of large language models as tools in literature reviews: a large language model-assisted systematic review. Journal of the American Medical Informatics Association, 32(6), 1071–1086. https://doi.org/10.1093/jamia/ocaf063
+
+Liang, Y., & Lee, L.-K. (2023). A Systematic Review of Citation Recommendation Over the Past Two Decades. International Journal on Semantic Web and Information Systems (IJSWIS). https://doi.org/10.4018/ijswis.324071
+
+Saeidnia, H. R., Hosseini, E., Abdoli, S., & Ausloos, M. (2024). Unleashing the Power of AI. A Systematic Review of Cutting-Edge Techniques in AI-Enhanced Scientometrics, Webometrics, and Bibliometrics. Library Hi Tech. https://doi.org/10.1108/LHT-10-2023-0514
+
+Shemilt, I., Arno, A., Thomas, J., Lorenc, T., Khouja, C., Raine, G., Sutcliffe, K., Preethy, D., Kwan, I., Wright, K., & Sowden, A. (2021). Cost-effectiveness of Microsoft Academic Graph with machine learning for automated study identification in a living map of coronavirus disease 2019 (COVID-19) research. Wellcome Open Research. https://doi.org/10.12688/wellcomeopenres.17141.1
+
+Ateia, S. (2025). From Professional Search to Generative Deep Research Systems: How Can Expert Oversight Improve Search Outcomes? Annual International ACM SIGIR Conference on Research and Development in Information Retrieval. https://doi.org/10.1145/3726302.3730131
+
+Pourreza, M., & Ensan, F. (2022). Towards semantic-driven boolean query formalization for biomedical systematic literature reviews. Int. J. Medical Informatics. https://doi.org/10.1016/j.ijmedinf.2022.104928
+
+Zulkarnain, & Putri, T. D. (2021). Intelligent transportation systems (ITS): A systematic review using a Natural Language Processing (NLP) approach. Heliyon. https://doi.org/10.1016/j.heliyon.2021.e08615
+
+Alexander, P. (2021). Total Recall via Keyqueries: A Case Study for Systematic Reviews.
+
+Hasan, I., Hasan, U., Rao, B., & Abbasi, S. H. (2019). 9 Hierarchical arrangement of scholarly and novel information (HASANI): a digital platform to synthesize research evidence in real time. Oral Presentations, A9.1-A9. https://doi.org/10.1136/bmjebm-2019-ebmlive.17
+
+Hovakimyan, G., & Bravo, J. M. (2024). Evolving Strategies in Machine Learning: A Systematic Review of Concept Drift Detection. Information, 15(12), 786. https://doi.org/10.3390/info15120786
+
+Li, D., Wang, Z., Shen, F., Murad, M., & Liu, H. (2014). Towards a multi-level framework for supporting systematic review — A pilot study. IEEE International Conference on Bioinformatics and Biomedicine. https://doi.org/10.1109/BIBM.2014.6999266
+
+Dhakal, A., Paudel, K., & Sigdel, S. (2025). An Artificial Intelligence Driven Semantic Similarity-Based Pipeline for Rapid Literature. In arXiv.org (Version 1). arXiv. https://doi.org/10.48550/ARXIV.2509.15292
+
+Jia, J., & Liu, X. (2018). Improving Systematic Literature Review Based on Text Similarity Analysis. Journal of Physics: Conference Series. https://doi.org/10.1088/1742-6596/1069/1/012059
+
+He, J., Cao, T., & Duffy, V. G. (2023). Machine Learning Techniques and Privacy Concerns in Human-Computer Interactions: A Systematic Review. In Lecture Notes in Computer Science (pp. 373–389). Springer Nature Switzerland. https://doi.org/10.1007/978-3-031-48057-7_23
+
+Vera, V., Khandelwal, V., Roy, K., Garimella, R., Surana, H., & Sheth, A. (2025). <scp>AI</scp>
+                    ‐Augmented Search for Systematic Reviews: A Comparative Analysis. Proceedings of the Association for Information Science and Technology, 62(1), 705–717. https://doi.org/10.1002/pra2.1290
+
+Lee, G. E., & Sun, A. (2021). Mirror Matching: Document Matching Approach in Seed-driven Document Ranking for Medical Systematic Reviews. arXiv.Org.
+
+Abbasi Dashtaki, N., CheshmehSohrabi, M., Pashootanizadeh, M., & Baradaran Kashani, H. (2025). Retrieving and discovering new knowledge from documents’ abstracts in scientific databases: Proposing a query-based abstractive summarization model. International Journal of Information Management Data Insights, 5(2), 100366. https://doi.org/10.1016/j.jjimei.2025.100366
+
+The RapiD and SecuRe AI enhAnced DiaGnosis, Precision Medicine and Patient EmpOwerment Centered Decision Support System for Coronavirus PaNdemics Initial graph based upon existing knowledge. (2021).
+
+Adam, G., Davies, M., George, J., Caputo, E. L., Htun, J. M., Coppola, E., Holmer, H., Kuhn, E., Wethington, H., Ivlev, I., Balk, E. M., & Trikalinos, T. A. (2025). Machine Learning Tools To (Semi-)Automate Evidence Synthesis: A Rapid Review and Evidence Map. https://doi.org/10.23970/ahrqepcwhitepapermachine2
+
+Fitzky, I., Schmid, N., & Baltes, G. H. (2025). Beyond Boundaries: A Machine Learning and Text Mining Approach to Mapping Corporate Entrepreneurship Research. 2025 IEEE International Conference on Engineering, Technology, and Innovation (ICE/ITMC), 1–10. https://doi.org/10.1109/ice/itmc65658.2025.11106548
+
+Otte, W. M., IJzendoorn, D. G. V., Habets, P., & Vinkers, C. (2023). Fast clinical trial identification using fuzzy-search elastic searches: retrospective validation with high-quality Cochrane benchmark. medRxiv. https://doi.org/10.1101/2023.09.06.23295135
+
+Nepomuceno, V. (2015). Decision Support Architecture for Primary Studies Evaluation.
+
+Randhawa, K., Wilden, R., & Hohberger, J. (2014). “Open Innovation: Content, Impact and Future Research Directions.” https://doi.org/10.5465/AMBPP.2014.13088ABSTRACT

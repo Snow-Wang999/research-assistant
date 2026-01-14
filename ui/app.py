@@ -1,4 +1,4 @@
-"""Gradio Web界面 - 支持流式输出"""
+"""Gradio Web界面 - Tab + Sidebar架构 v0.4.0"""
 import gradio as gr
 import sys
 import time
@@ -18,6 +18,71 @@ from tools.reading_guide import ReadingGuide
 def create_app():
     """创建Gradio应用"""
     assistant = ResearchAssistant()
+
+    def show_paper_details(paper_json: str) -> str:
+        """显示论文详情到侧边栏"""
+        if not paper_json or paper_json == "{}":
+            return "## 📄 论文详情\n\n点击论文标题查看详细信息"
+
+        import json
+        try:
+            paper = json.loads(paper_json)
+        except:
+            return "## 📄 论文详情\n\n数据解析失败"
+
+        output = "## 📄 论文详情\n\n"
+
+        # 标题
+        title = paper.get('title', '未知标题')
+        output += f"### {title}\n\n"
+
+        # 中文标题（如果有）
+        title_cn = paper.get('title_cn', '')
+        if title_cn:
+            output += f"*{title_cn}*\n\n"
+
+        # 作者
+        authors = paper.get('authors', [])
+        if authors:
+            output += f"**👥 作者**: {', '.join(authors[:5])}\n\n"
+
+        # 年份、引用数
+        year = paper.get('year', 'N/A')
+        output += f"**📅 年份**: {year}\n\n"
+
+        citation_count = paper.get('citation_count')
+        if citation_count:
+            output += f"**📊 引用数**: {citation_count}\n\n"
+
+        # 来源
+        source = paper.get('source', '').upper()
+        if source:
+            output += f"**🔖 来源**: {source}\n\n"
+
+        # 摘要
+        abstract = paper.get('abstract', '')
+        summary = paper.get('summary', '')  # LLM生成的中文摘要
+
+        if summary:
+            output += f"**📝 摘要** (AI生成):\n\n{summary}\n\n"
+
+        if abstract:
+            output += f"**📄 原文摘要**:\n\n{abstract}\n\n"
+
+        # URL
+        url = paper.get('url', '')
+        if url:
+            output += f"**🔗 链接**: [{url}]({url})\n\n"
+
+        # arXiv ID（如果是arXiv论文，显示获取全文按钮提示）
+        if source == 'ARXIV' and url:
+            import re
+            match = re.search(r'(\d{4}\.\d{4,5})', url)
+            if match:
+                arxiv_id = match.group(1)
+                output += f"\n---\n\n💡 **提示**: 这是 arXiv 论文，可在深度研究模式中勾选「使用全文研究」来获取 PDF 全文。\n\n"
+
+        return output
 
     def format_paper(paper: dict, index: int, show_source: bool = False) -> str:
         """格式化单篇论文"""
@@ -103,10 +168,16 @@ def create_app():
 
         return "\n".join(lines)
 
-    def search_papers_stream(query: str, mode: str = "auto"):
-        """流式搜索论文 - 实时显示进度"""
+    def search_papers_stream(query: str, mode: str = "auto", use_fulltext: bool = False):
+        """流式搜索论文 - 实时显示进度
+
+        Args:
+            query: 查询字符串
+            mode: 搜索模式 ("auto", "simple", "deep_research")
+            use_fulltext: 是否使用全文研究（仅深度研究模式有效）
+        """
         if not query.strip():
-            yield "请输入研究问题", "", "", "", ""
+            yield "请输入研究问题", "", "", "", "", "{}"
             return
 
         start_time = datetime.now()
@@ -116,18 +187,27 @@ def create_app():
         start_time_str = start_time.strftime("%H:%M:%S")
         header = f"## 🔍 查询分析\n\n"
         header += f"**查询**: {query}\n\n"
-        header += f"**模式**: {'🚀 深度研究' if actual_mode == 'deep_research' or (actual_mode == 'auto' and len(query) > 20) else '⚡ 快速搜索'}\n\n"
+
+        # 显示模式（包括全文研究状态）
+        if actual_mode == 'deep_research' or (actual_mode == 'auto' and len(query) > 20):
+            mode_display = "🚀 深度研究"
+            if use_fulltext:
+                mode_display += " (📄 全文模式)"
+        else:
+            mode_display = "⚡ 快速搜索"
+
+        header += f"**模式**: {mode_display}\n\n"
         header += f"**状态**: ⏳ 正在分析查询... (开始于 {start_time_str})\n"
 
-        yield header, f"⏳ 正在分析问题，请稍候...\n\n> 开始时间: {start_time_str}，可点击「停止」按钮取消", "", "*🔄 搜索中...*", "*🔄 搜索中...*"
+        yield header, f"⏳ 正在分析问题，请稍候...\n\n> 开始时间: {start_time_str}，可点击「停止」按钮取消", "", "*🔄 搜索中...*", "*🔄 搜索中...*", "{}"
 
-        # 阶段2: 执行搜索
+        # 阶段2: 执行搜索（传入 use_fulltext 参数）
         try:
-            result = assistant.process_query(query, mode=actual_mode)
+            result = assistant.process_query(query, mode=actual_mode, use_fulltext=use_fulltext)
         except Exception as e:
             elapsed = (datetime.now() - start_time).total_seconds()
             error_msg = f"## ❌ 搜索出错\n\n耗时: {elapsed:.1f}秒\n\n错误: {str(e)}"
-            yield header.replace("⏳ 正在分析查询...", f"❌ 出错 ({elapsed:.1f}s)"), error_msg, "", "", ""
+            yield header.replace("⏳ 正在分析查询...", f"❌ 出错 ({elapsed:.1f}s)"), error_msg, "", "", "", "{}"
             return
 
         elapsed = (datetime.now() - start_time).total_seconds()
@@ -185,9 +265,14 @@ def create_app():
         guide_output = format_reading_guide(reading_guide) if result['mode'] == 'simple' else ""
 
         # 论文列表（深度研究模式使用原始搜索结果，独立于报告引用）
+        # 同时准备 papers_list_json 供侧边栏选择
+        import json
+        papers_list = []
+
         if result['mode'] == 'deep_research':
             arxiv_papers = result.get('arxiv_papers', [])
             openalex_papers = result.get('openalex_papers', [])
+            papers_list = arxiv_papers + openalex_papers  # 合并用于侧边栏
 
             # arXiv 论文独立编号从1开始
             arxiv_output = f"### arXiv 最新论文 ({len(arxiv_papers)}篇)\n\n"
@@ -207,6 +292,7 @@ def create_app():
         else:
             arxiv_papers = result.get('arxiv_papers', [])
             openalex_papers = result.get('openalex_papers', [])
+            papers_list = arxiv_papers + openalex_papers
 
             arxiv_output = f"### arXiv 最新论文 ({len(arxiv_papers)}篇)\n\n"
             for i, paper in enumerate(arxiv_papers, 1):
@@ -221,86 +307,224 @@ def create_app():
             if not openalex_papers:
                 openalex_output += "*暂无结果*\n"
 
-        yield header, report_output, guide_output, arxiv_output, openalex_output
+        # 返回论文列表JSON供侧边栏使用
+        papers_json = json.dumps(papers_list, ensure_ascii=False)
+
+        yield header, report_output, guide_output, arxiv_output, openalex_output, papers_json
 
     # 创建界面
-    with gr.Blocks(title="科研助手", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="科研助手 v0.4.0", theme=gr.themes.Soft()) as app:
         gr.Markdown(
             """
-            # 🔬 科研助手 v0.3.0
+            # 🔬 科研助手 v0.4.0
 
-            输入你的研究问题，我会帮你搜索相关论文并提供阅读建议。
-
-            **v0.3.0 新功能**:
-            - 🚀 **深度研究模式**: 子问题分解 + 并行搜索 + 研究报告生成
-            - ⏱️ **实时进度显示**: 显示各阶段耗时
-            - ⏹️ **停止按钮**: 可随时取消搜索
+            **v0.4.0 新功能**:
+            - 🏗️ **Tab + Sidebar 架构**: 更清晰的布局
+            - 📄 **PDF 全文研究**: 下载arXiv论文并使用全文分析
+            - 🎯 **智能筛选**: LLM 评估论文相关性
             """
         )
 
+        # 主布局：左侧内容区 + 右侧侧边栏
         with gr.Row():
-            query_input = gr.Textbox(
-                label="研究问题",
-                placeholder="例如：对比 Transformer 和 RNN 的优劣",
-                lines=2,
-                scale=3,
-            )
-            mode_selector = gr.Radio(
-                choices=["智能判断", "快速搜索", "深度研究"],
-                value="智能判断",
-                label="搜索模式",
-                scale=1,
-            )
+            # 左侧：Tab导航 + 内容区
+            with gr.Column(scale=7):
+                with gr.Tabs() as tabs:
+                    # Tab 1: 搜索（快速模式）
+                    with gr.Tab("搜索", id="search"):
+                        gr.Markdown("### ⚡ 快速搜索模式\n\n快速搜索相关论文并提供阅读建议")
 
-        with gr.Row():
-            search_btn = gr.Button("🔍 搜索论文", variant="primary", scale=4)
-            stop_btn = gr.Button("⏹️ 停止", variant="stop", scale=1)
+                        with gr.Row():
+                            search_query_input = gr.Textbox(
+                                label="研究问题",
+                                placeholder="例如：Transformer注意力机制",
+                                lines=2,
+                                scale=4
+                            )
 
-        # 查询分析区
-        header_output = gr.Markdown(label="查询分析")
+                        with gr.Row():
+                            search_btn = gr.Button("🔍 搜索论文", variant="primary", scale=4)
+                            search_stop_btn = gr.Button("⏹️ 停止", variant="stop", scale=1)
 
-        # 深度研究报告区
-        report_output = gr.Markdown(label="研究报告")
+                        search_header = gr.Markdown(label="查询分析")
+                        search_guide = gr.Markdown(label="阅读建议")
 
-        # 阅读导航区
-        guide_output = gr.Markdown(label="阅读建议")
+                        with gr.Row():
+                            with gr.Column():
+                                search_arxiv = gr.Markdown(label="arXiv论文")
+                            with gr.Column():
+                                search_openalex = gr.Markdown(label="OpenAlex论文")
 
-        # 分栏显示结果
-        with gr.Row():
-            with gr.Column():
-                arxiv_output = gr.Markdown(label="arXiv论文")
-            with gr.Column():
-                openalex_output = gr.Markdown(label="OpenAlex论文")
+                        gr.Examples(
+                            examples=[
+                                ["Transformer注意力机制"],
+                                ["RAG文档解析"],
+                                ["大模型最新进展"],
+                            ],
+                            inputs=search_query_input,
+                        )
 
-        # 示例
-        gr.Examples(
-            examples=[
-                ["对比 Transformer 和 RNN 的优劣"],
-                ["RAG在文档解析任务中的作用"],
-                ["Transformer注意力机制"],
-                ["大模型最新进展"],
-            ],
-            inputs=query_input,
-        )
+                    # Tab 2: 深度研究
+                    with gr.Tab("深度研究", id="deep_research"):
+                        gr.Markdown("### 🚀 深度研究模式\n\n子问题分解 + 并行搜索 + 研究报告生成")
 
-        # 搜索事件（流式输出）
+                        with gr.Row():
+                            dr_query_input = gr.Textbox(
+                                label="研究问题",
+                                placeholder="例如：对比 Transformer 和 RNN 的优劣",
+                                lines=2,
+                                scale=4
+                            )
+
+                        # v0.4.0: 全文研究选项
+                        with gr.Row():
+                            use_fulltext_checkbox = gr.Checkbox(
+                                label="📄 使用全文研究 (下载arXiv PDF，需要更多时间)",
+                                value=False,
+                                info="启用后会筛选相关论文并下载PDF进行深入分析"
+                            )
+
+                        with gr.Row():
+                            dr_search_btn = gr.Button("🚀 开始研究", variant="primary", scale=4)
+                            dr_stop_btn = gr.Button("⏹️ 停止", variant="stop", scale=1)
+
+                        dr_header = gr.Markdown(label="查询分析")
+                        dr_report = gr.Markdown(label="研究报告")
+
+                        with gr.Row():
+                            with gr.Column():
+                                dr_arxiv = gr.Markdown(label="arXiv论文")
+                            with gr.Column():
+                                dr_openalex = gr.Markdown(label="OpenAlex论文")
+
+                        gr.Examples(
+                            examples=[
+                                ["对比 Transformer 和 RNN 的优劣"],
+                                ["RAG在文档解析任务中的作用"],
+                                ["多模态大模型的发展趋势"],
+                            ],
+                            inputs=dr_query_input,
+                        )
+
+                    # Tab 3: 论文库（占位）
+                    with gr.Tab("论文库", id="papers"):
+                        gr.Markdown(
+                            """
+                            ### 📚 本地论文库
+
+                            **功能开发中...**
+
+                            未来将支持:
+                            - 📤 上传本地PDF
+                            - 🗄️ 论文库管理
+                            - 🔍 全文检索
+                            - 🏷️ 标签分类
+                            """
+                        )
+
+            # 右侧：统一侧边栏
+            with gr.Column(scale=3):
+                gr.Markdown("### 📄 论文详情")
+
+                # 论文选择器（下拉菜单）
+                paper_selector = gr.Dropdown(
+                    label="选择论文",
+                    choices=[],
+                    interactive=True,
+                    info="从搜索结果中选择论文查看详情"
+                )
+
+                # 侧边栏内容（显示选中论文的详情）
+                sidebar_content = gr.Markdown(
+                    value="## 📄 论文详情\n\n点击上方下拉菜单选择论文查看详细信息",
+                    label="详细信息"
+                )
+
+                # 隐藏的状态：存储所有论文数据JSON
+                papers_state = gr.State(value="[]")
+
+        # 事件绑定
+
+        # 搜索Tab - 快速搜索
+        search_report_dummy = gr.State(value="")  # 占位，快速模式不需要report
+
         search_event = search_btn.click(
             fn=search_papers_stream,
-            inputs=[query_input, mode_selector],
-            outputs=[header_output, report_output, guide_output, arxiv_output, openalex_output]
-        )
-        submit_event = query_input.submit(
-            fn=search_papers_stream,
-            inputs=[query_input, mode_selector],
-            outputs=[header_output, report_output, guide_output, arxiv_output, openalex_output]
+            inputs=[search_query_input, gr.State(value="快速搜索"), gr.State(value=False)],
+            outputs=[search_header, search_report_dummy, search_guide, search_arxiv, search_openalex, papers_state]
         )
 
-        # 停止按钮取消搜索
-        stop_btn.click(
-            fn=None,
-            inputs=None,
-            outputs=None,
-            cancels=[search_event, submit_event]
+        submit_search_event = search_query_input.submit(
+            fn=search_papers_stream,
+            inputs=[search_query_input, gr.State(value="快速搜索"), gr.State(value=False)],
+            outputs=[search_header, search_report_dummy, search_guide, search_arxiv, search_openalex, papers_state]
+        )
+
+        search_stop_btn.click(fn=None, inputs=None, outputs=None, cancels=[search_event, submit_search_event])
+
+        # 深度研究Tab
+        dr_guide_dummy = gr.State(value="")  # 占位，深度模式不需要guide
+
+        dr_event = dr_search_btn.click(
+            fn=search_papers_stream,
+            inputs=[dr_query_input, gr.State(value="深度研究"), use_fulltext_checkbox],
+            outputs=[dr_header, dr_report, dr_guide_dummy, dr_arxiv, dr_openalex, papers_state]
+        )
+
+        submit_dr_event = dr_query_input.submit(
+            fn=search_papers_stream,
+            inputs=[dr_query_input, gr.State(value="深度研究"), use_fulltext_checkbox],
+            outputs=[dr_header, dr_report, dr_guide_dummy, dr_arxiv, dr_openalex, papers_state]
+        )
+
+        dr_stop_btn.click(fn=None, inputs=None, outputs=None, cancels=[dr_event, submit_dr_event])
+
+        # 侧边栏：更新论文选择器（当搜索完成后）
+        def update_paper_selector(papers_json: str):
+            """更新论文下拉菜单"""
+            import json
+            try:
+                papers = json.loads(papers_json) if papers_json else []
+                if not papers:
+                    return gr.Dropdown(choices=[], value=None)
+
+                choices = []
+                for i, p in enumerate(papers, 1):
+                    title = p.get('title', '未知标题')[:60]
+                    choices.append((f"[{i}] {title}...", i-1))  # (显示文本, 值)
+
+                return gr.Dropdown(choices=choices, value=None)
+            except:
+                return gr.Dropdown(choices=[], value=None)
+
+        # 当搜索完成时更新选择器
+        papers_state.change(
+            fn=update_paper_selector,
+            inputs=[papers_state],
+            outputs=[paper_selector]
+        )
+
+        # 侧边栏：当选择论文时显示详情
+        def show_selected_paper(paper_index, papers_json):
+            """显示选中的论文详情"""
+            import json
+            if paper_index is None or not papers_json:
+                return "## 📄 论文详情\n\n请先搜索论文，然后从上方下拉菜单选择"
+
+            try:
+                papers = json.loads(papers_json)
+                if 0 <= paper_index < len(papers):
+                    paper = papers[paper_index]
+                    return show_paper_details(json.dumps(paper, ensure_ascii=False))
+                else:
+                    return "## 📄 论文详情\n\n论文索引无效"
+            except Exception as e:
+                return f"## 📄 论文详情\n\n解析出错: {str(e)}"
+
+        paper_selector.change(
+            fn=show_selected_paper,
+            inputs=[paper_selector, papers_state],
+            outputs=[sidebar_content]
         )
 
     return app

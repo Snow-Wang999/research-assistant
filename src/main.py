@@ -56,7 +56,7 @@ class ResearchAssistant:
             self.deep_research = DeepResearchOrchestrator()  # 使用回退方案
             print("提示: 未配置 DEEPSEEK_API_KEY，将使用简单模式")
 
-    def process_query(self, query: str, mode: str = "auto") -> dict:
+    def process_query(self, query: str, mode: str = "auto", use_fulltext: bool = False) -> dict:
         """
         处理用户查询
 
@@ -65,7 +65,8 @@ class ResearchAssistant:
             mode: 搜索模式 "auto" | "simple" | "deep_research"
                   auto: 由 QueryAnalyzer 建议
                   simple: 快速搜索
-                  deep_research: 深度研究（暂未实现完整功能）
+                  deep_research: 深度研究
+            use_fulltext: 是否使用全文研究（仅深度研究模式有效，v0.4.0）
 
         Returns:
             搜索结果字典
@@ -81,7 +82,7 @@ class ResearchAssistant:
         if mode == "simple":
             return self._handle_simple_query(query, analysis)
         else:
-            return self._handle_deep_research(query, analysis)
+            return self._handle_deep_research(query, analysis, use_fulltext=use_fulltext)
 
     def _handle_simple_query(self, original_query: str, analysis) -> dict:
         """处理快速搜索"""
@@ -135,7 +136,7 @@ class ResearchAssistant:
             "reading_guide": reading_guide,
         }
 
-    def _handle_deep_research(self, original_query: str, analysis) -> dict:
+    def _handle_deep_research(self, original_query: str, analysis, use_fulltext: bool = False) -> dict:
         """
         处理深度研究查询
 
@@ -143,9 +144,23 @@ class ResearchAssistant:
         - 子问题分解
         - 并行搜索研究
         - 综合分析报告
+
+        v0.4.0 新增：
+        - 支持全文研究模式（下载 PDF）
         """
+        # 根据 use_fulltext 创建配置
+        from agents.deep_research import DeepResearchConfig
+        config = DeepResearchConfig(use_fulltext=use_fulltext)
+
+        # 创建协调器实例（使用指定配置）
+        orchestrator = DeepResearchOrchestrator(
+            deepseek_api_key=self.deepseek_key,
+            config=config,
+            progress_callback=self.progress_callback
+        )
+
         # 执行深度研究
-        deep_result = self.deep_research.run(original_query)
+        deep_result = orchestrator.run(original_query)
 
         # 收集所有论文（从各子问题的研究结果中提取）
         all_papers = []

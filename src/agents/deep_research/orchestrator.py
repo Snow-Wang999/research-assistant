@@ -13,17 +13,22 @@ from datetime import datetime
 
 from .decomposer import SubQuestionDecomposer, DecompositionResult
 from .research_agent import ResearchAgent, ResearchResult, ParallelResearchRunner
+from .fulltext_research_agent import FulltextResearchAgent, FulltextResearchResult, ParallelFulltextResearchRunner
 from .report_generator import ReportGenerator, ResearchReport
 
 
 @dataclass
 class DeepResearchConfig:
     """深度研究配置"""
-    max_sub_questions: int = 3          # 最大子问题数（减少以提高速度）
-    papers_per_question: int = 4        # 每个子问题的论文数
-    max_parallel_workers: int = 5       # 最大并行数（增加以提高速度）
+    max_sub_questions: int = 3          # 最大子问题数
+    papers_per_question: int = 30       # 每个子问题搜索的论文数（增加搜索量）
+    max_parallel_workers: int = 5       # 最大并行数
     enable_compression: bool = True     # 是否启用 LLM 压缩
-    timeout_seconds: int = 120          # 整体超时时间（秒）
+    timeout_seconds: int = 180          # 整体超时时间（秒），增加以适应更多搜索
+    # v0.4.0 新增：全文研究选项
+    use_fulltext: bool = False          # 是否使用全文研究（下载 PDF）
+    max_fulltext_per_question: int = 10 # 每个子问题最多获取的全文数
+    papers_to_analyze: int = 10         # 筛选后用于分析的论文数
 
 
 @dataclass
@@ -82,10 +87,24 @@ class DeepResearchOrchestrator:
 
         # 初始化各组件
         self.decomposer = SubQuestionDecomposer(deepseek_api_key=deepseek_api_key)
-        self.research_runner = ParallelResearchRunner(
-            deepseek_api_key=deepseek_api_key,
-            max_workers=self.config.max_parallel_workers
-        )
+
+        # 根据配置选择研究模式
+        if self.config.use_fulltext:
+            # v0.4.0: 全文研究模式
+            self.research_runner = ParallelFulltextResearchRunner(
+                deepseek_api_key=deepseek_api_key,
+                max_workers=min(2, self.config.max_parallel_workers),  # 全文模式减少并发
+                max_fulltext_per_question=self.config.max_fulltext_per_question
+            )
+            self.use_fulltext = True
+        else:
+            # 原有摘要研究模式
+            self.research_runner = ParallelResearchRunner(
+                deepseek_api_key=deepseek_api_key,
+                max_workers=self.config.max_parallel_workers
+            )
+            self.use_fulltext = False
+
         self.report_generator = ReportGenerator(deepseek_api_key=deepseek_api_key)
 
     def _report_progress(self, message: str, progress: float):
@@ -134,7 +153,10 @@ class DeepResearchOrchestrator:
 
             # 阶段 2: 并行研究 (20-70%)
             stage_start = datetime.now()
-            self._report_progress("正在搜索相关论文...", 0.25)
+            if self.use_fulltext:
+                self._report_progress("正在搜索论文并获取全文...", 0.25)
+            else:
+                self._report_progress("正在搜索相关论文...", 0.25)
             self._check_timeout(start_time, "搜索前")
 
             research_results = self.research_runner.run(
@@ -144,11 +166,20 @@ class DeepResearchOrchestrator:
             stage_times["2_论文搜索"] = (datetime.now() - stage_start).total_seconds()
             self._check_timeout(start_time, "搜索后")
 
-            total_papers = sum(r.papers_found for r in research_results)
-            self._report_progress(
-                f"完成搜索，共找到 {total_papers} 篇论文 ({stage_times['2_论文搜索']:.1f}s)",
-                0.7
-            )
+            # 统计论文数量
+            if self.use_fulltext:
+                total_papers = sum(r.papers_searched for r in research_results)
+                fulltext_papers = sum(r.papers_with_fulltext for r in research_results)
+                self._report_progress(
+                    f"完成搜索，共 {total_papers} 篇论文，获取 {fulltext_papers} 篇全文 ({stage_times['2_论文搜索']:.1f}s)",
+                    0.7
+                )
+            else:
+                total_papers = sum(r.papers_found for r in research_results)
+                self._report_progress(
+                    f"完成搜索，共找到 {total_papers} 篇论文 ({stage_times['2_论文搜索']:.1f}s)",
+                    0.7
+                )
 
             # 阶段 3: 报告生成 (70-100%)
             stage_start = datetime.now()
@@ -165,20 +196,29 @@ class DeepResearchOrchestrator:
 
             self._report_progress(f"研究完成，耗时 {duration:.1f} 秒", 1.0)
 
+            # 构建元数据
+            metadata = {
+                "duration_seconds": duration,
+                "sub_questions_count": len(decomposition.sub_questions),
+                "total_papers": total_papers,
+                "query_type": decomposition.query_type,
+                "completed_at": end_time.isoformat(),
+                "stage_times": stage_times,
+                "use_fulltext": self.use_fulltext  # v0.4.0: 标记研究模式
+            }
+
+            # 全文模式额外统计
+            if self.use_fulltext:
+                metadata["fulltext_papers"] = fulltext_papers
+                metadata["screened_papers"] = sum(r.papers_screened for r in research_results)
+
             return DeepResearchOutput(
                 query=query,
                 decomposition=decomposition,
                 research_results=research_results,
                 report=report,
                 report_markdown=report_markdown,
-                metadata={
-                    "duration_seconds": duration,
-                    "sub_questions_count": len(decomposition.sub_questions),
-                    "total_papers": total_papers,
-                    "query_type": decomposition.query_type,
-                    "completed_at": end_time.isoformat(),
-                    "stage_times": stage_times  # 各阶段耗时
-                }
+                metadata=metadata
             )
 
         except TimeoutError as e:
@@ -265,7 +305,8 @@ class DeepResearchOrchestrator:
 def deep_research(
     query: str,
     deepseek_api_key: Optional[str] = None,
-    progress_callback: Optional[Callable[[str, float], None]] = None
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    use_fulltext: bool = False  # v0.4.0: 全文研究模式
 ) -> DeepResearchOutput:
     """
     便捷函数：执行深度研究
@@ -274,18 +315,29 @@ def deep_research(
         query: 研究问题
         deepseek_api_key: API Key
         progress_callback: 进度回调
+        use_fulltext: 是否使用全文研究（下载 PDF）
 
     Returns:
         DeepResearchOutput: 研究输出
 
     使用示例：
     ```python
+    # 摘要模式（快速）
     result = deep_research("对比 GPT 和 Claude 的能力")
+
+    # 全文模式（深入，需要更多时间）
+    result = deep_research("Transformer 架构分析", use_fulltext=True)
+
     print(result.report_markdown)
     ```
     """
+    config = DeepResearchConfig(
+        use_fulltext=use_fulltext,
+        timeout_seconds=180 if use_fulltext else 120  # 全文模式更长超时
+    )
     orchestrator = DeepResearchOrchestrator(
         deepseek_api_key=deepseek_api_key,
+        config=config,
         progress_callback=progress_callback
     )
     return orchestrator.run(query)
