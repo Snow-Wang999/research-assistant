@@ -2,10 +2,20 @@
 from typing import List, Optional, Literal
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
+from pathlib import Path
 
+# 添加 src 到路径
+src_dir = Path(__file__).parent.parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
+from utils.logger import get_search_logger
 from .semantic_scholar import SemanticScholarSearch, Paper
 from .arxiv_search import ArxivSearch
 from .openalex_search import OpenAlexSearch
+
+log = get_search_logger()
 
 
 @dataclass
@@ -74,6 +84,8 @@ class UnifiedSearch:
         all_papers = []
         sources_used = []
 
+        log.info(f"开始搜索: query='{query}', limit={limit}, sources={sources_to_use}")
+
         if parallel and len(sources_to_use) > 1:
             # 并行搜索
             with ThreadPoolExecutor(max_workers=len(sources_to_use)) as executor:
@@ -91,7 +103,7 @@ class UnifiedSearch:
                         if papers:
                             sources_used.append(source)
                     except Exception as e:
-                        print(f"{source} 搜索出错: {e}")
+                        log.error(f"{source} 搜索出错: {e}")
         else:
             # 串行搜索
             for source in sources_to_use:
@@ -107,6 +119,9 @@ class UnifiedSearch:
         # 分组排序：arXiv（时效性）在前，OpenAlex（经典高引用）在后
         # 每组内部：arXiv按时间（默认），OpenAlex按引用数
         sorted_papers = self._group_by_source(unique_papers)
+
+        log.info(f"搜索完成: 总计={len(all_papers)}, 去重后={len(unique_papers)}, 返回={min(len(sorted_papers), limit * 2)}")
+        log.debug(f"使用的源: {sources_used}")
 
         return SearchResult(
             papers=sorted_papers[:limit * 2],  # 返回更多结果
@@ -224,7 +239,7 @@ class UnifiedSearch:
                         all_papers.extend(papers)
                         sources_used.add(papers[0].source)
                 except Exception as e:
-                    print(f"多关键词搜索出错: {e}")
+                    log.error(f"多关键词搜索出错: {e}")
 
         # 去重
         unique_papers = self._deduplicate(all_papers)
@@ -237,7 +252,7 @@ class UnifiedSearch:
         openalex_papers = [p for p in sorted_papers if p.source == "openalex"][:total_limit]
         final_papers = arxiv_papers + openalex_papers
 
-        print(f"[多关键词搜索] 关键词数: {len(keywords)}, 去重后: {len(unique_papers)}, 最终: {len(final_papers)}")
+        log.info(f"多关键词搜索完成: 关键词数={len(keywords)}, 去重后={len(unique_papers)}, 最终={len(final_papers)}")
 
         return SearchResult(
             papers=final_papers,

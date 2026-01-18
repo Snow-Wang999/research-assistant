@@ -6,6 +6,9 @@ import os
 import httpx
 from typing import Optional, Literal
 
+from .logger import get_llm_logger
+
+log = get_llm_logger()
 
 TaskType = Literal["intent", "screen", "compress", "report"]
 ModelSize = Literal["turbo", "plus", "max"]
@@ -82,28 +85,40 @@ class QwenClient:
         model_size = model_override or self.TASK_MODEL_MAP[task_type]
         model_name = self.MODELS[model_size]
 
-        print(f"[QwenClient] 任务: {task_type}, 使用模型: {model_name}")
+        log.info(f"任务: {task_type}, 使用模型: {model_name}")
+        log.debug(f"Prompt 长度: {len(prompt)} 字符, max_tokens: {max_tokens}")
 
         # 调用 API
-        response = httpx.post(
-            self.API_URL,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": temperature
-            },
-            timeout=timeout
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.post(
+                self.API_URL,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                },
+                timeout=timeout
+            )
+            response.raise_for_status()
 
-        content = response.json()["choices"][0]["message"]["content"]
-        print(f"[QwenClient] 响应长度: {len(content)} 字符")
-        return content
+            content = response.json()["choices"][0]["message"]["content"]
+            log.info(f"响应成功, 长度: {len(content)} 字符")
+            log.debug(f"响应预览: {content[:200]}..." if len(content) > 200 else f"响应: {content}")
+            return content
+        except httpx.TimeoutException as e:
+            log.error(f"API 调用超时: {timeout}秒")
+            raise
+        except httpx.HTTPStatusError as e:
+            log.error(f"API 返回错误: {e.response.status_code} - {e.response.text[:200]}")
+            raise
+        except Exception as e:
+            log.error(f"API 调用异常: {type(e).__name__}: {str(e)}")
+            raise
 
 
 # 便捷函数

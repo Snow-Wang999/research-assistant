@@ -18,9 +18,9 @@ ENV/
 *.swo
 
 # Logs & Data
-logs/
+logs/*.log
 data/
-*.log
+!logs/.gitkeep
 
 # Temp files
 tmpclaude-*

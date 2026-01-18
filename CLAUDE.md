@@ -20,19 +20,40 @@
 
 ---
 
+## 虚拟环境（重要）
+
+**Claude Code 必须使用项目虚拟环境中的 Python：**
+
+```bash
+# ✅ 正确：使用虚拟环境 Python（需要设置编码）
+export PYTHONIOENCODING=utf-8
+.venv/Scripts/python.exe run.py
+.venv/Scripts/python.exe -m pytest tests/ -v
+
+# ❌ 错误：使用系统 Python
+python run.py
+```
+
+- 虚拟环境路径：`.venv/Scripts/python.exe`
+- Python 版本：3.9.13
+- 依赖已通过 `uv sync` 安装
+- **Git Bash 中文乱码**：必须先 `export PYTHONIOENCODING=utf-8`
+
+---
+
 ## 快速命令
 
 ```bash
-# 启动项目
-python run.py              # CLI模式
-python run.py --web        # Web界面 (http://127.0.0.1:7860)
-python run.py --web --share  # 生成公开链接
+# 启动项目（使用虚拟环境）
+.venv/Scripts/python.exe run.py              # CLI模式
+.venv/Scripts/python.exe run.py --web        # Web界面 (http://127.0.0.1:7860)
+.venv/Scripts/python.exe run.py --web --share  # 生成公开链接
 
-# 环境设置
+# 环境设置（首次）
 uv venv && .venv\Scripts\activate && uv sync
 
 # 测试
-pytest tests/ -v
+.venv/Scripts/python.exe -m pytest tests/ -v
 ```
 
 ---

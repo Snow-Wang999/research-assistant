@@ -13,6 +13,7 @@ from tools.query_analyzer import QueryAnalyzer
 from tools.abstract_summarizer import AbstractSummarizer
 from tools.reading_guide import ReadingGuide
 from agents.deep_research import DeepResearchOrchestrator
+from agents.deep_research.v2 import DeepResearchV2, DeepResearchV2Config
 from utils.config import config
 
 
@@ -56,7 +57,13 @@ class ResearchAssistant:
             self.deep_research = DeepResearchOrchestrator()  # 使用回退方案
             print("提示: 未配置 QWEN_API_KEY，将使用简单模式")
 
-    def process_query(self, query: str, mode: str = "auto", use_fulltext: bool = False) -> dict:
+    def process_query(
+        self,
+        query: str,
+        mode: str = "auto",
+        use_fulltext: bool = False,
+        use_v2: bool = False
+    ) -> dict:
         """
         处理用户查询
 
@@ -67,6 +74,7 @@ class ResearchAssistant:
                   simple: 快速搜索
                   deep_research: 深度研究
             use_fulltext: 是否使用全文研究（仅深度研究模式有效，v0.4.0）
+            use_v2: 是否使用 V2 架构（Supervisor 循环，v0.4.5）
 
         Returns:
             搜索结果字典
@@ -81,6 +89,9 @@ class ResearchAssistant:
         # 3. 根据模式执行
         if mode == "simple":
             return self._handle_simple_query(query, analysis)
+        elif use_v2:
+            # V2 架构：Supervisor 循环
+            return self._handle_deep_research_v2(query, analysis)
         else:
             return self._handle_deep_research(query, analysis, use_fulltext=use_fulltext)
 
@@ -247,6 +258,83 @@ class ResearchAssistant:
                 ]
             },
             "metadata": deep_result.metadata,
+        }
+
+    def _handle_deep_research_v2(self, original_query: str, analysis) -> dict:
+        """
+        处理深度研究查询（V2 架构）
+
+        v0.4.5 实现：
+        - Supervisor 动态循环（替代固定3轮）
+        - 显式反思（think_tool）
+        - Subagent as Tool
+        """
+        # 创建 V2 配置
+        config = DeepResearchV2Config(max_rounds=10)
+
+        # 创建 V2 协调器
+        research_v2 = DeepResearchV2(
+            qwen_api_key=self.qwen_key,
+            config=config,
+            progress_callback=self.progress_callback
+        )
+
+        # 执行 V2 深度研究
+        v2_result = research_v2.run(original_query)
+
+        # 收集所有论文（从 notes 中提取）
+        all_papers = []
+        arxiv_papers = []
+        openalex_papers = []
+
+        seen_titles = set()
+        for src in v2_result.state.get_all_sources():
+            title = src.get("title", "")
+            if title.lower() in seen_titles:
+                continue
+            seen_titles.add(title.lower())
+
+            # 获取摘要，截取前 200 字作为 summary
+            abstract = src.get("abstract", "")
+            summary = abstract[:200] + "..." if abstract and len(abstract) > 200 else abstract
+
+            paper_dict = {
+                "title": title,
+                "authors": src.get("authors", []),
+                "year": src.get("year"),
+                "citation_count": src.get("citation_count"),
+                "abstract": abstract,
+                "summary": summary,  # 用于列表显示
+                "url": src.get("url", ""),
+                "source": src.get("source", "unknown"),
+                "key_contribution": src.get("key_contribution", ""),
+            }
+            all_papers.append(paper_dict)
+
+            if src.get("source") == "arxiv":
+                arxiv_papers.append(paper_dict)
+            else:
+                openalex_papers.append(paper_dict)
+
+        # 生成阅读导航
+        reading_guide = self.reading_guide.generate(original_query, all_papers)
+
+        return {
+            "mode": "deep_research_v2",
+            "query": original_query,
+            "intent": analysis.intent,
+            "keywords": analysis.keywords,
+            "sources": ["arxiv", "openalex"],
+            "total_found": len(all_papers),
+            "arxiv_papers": arxiv_papers,
+            "openalex_papers": openalex_papers,
+            "papers": all_papers,
+            "reading_guide": reading_guide,
+            # V2 特有内容
+            "report": v2_result.report_markdown,
+            "report_sources": all_papers,
+            "thinking_history": v2_result.thinking_history,
+            "metadata": v2_result.metadata,
         }
 
 

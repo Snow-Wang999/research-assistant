@@ -375,7 +375,8 @@ class PDFParser:
         # 第一页的块
         first_page_blocks = [b for b in blocks if b.page == 1]
 
-        # 标题：第一页最大字体的块
+        # === 标题提取（多策略） ===
+        # 策略1：第一页最大字体的标题类型块
         title_candidates = [
             b for b in first_page_blocks[:10]
             if b.layout_type == LayoutType.TITLE and len(b.text) < 300
@@ -383,16 +384,64 @@ class PDFParser:
         if title_candidates:
             title = max(title_candidates, key=lambda b: b.font_size).text
 
-        # 摘要：查找 "Abstract" 后的内容
+        # 策略2：如果没找到，取第一页第一个较长的文本块（跳过太短的）
+        if not title or len(title) < 10:
+            for b in first_page_blocks[:5]:
+                if 10 < len(b.text) < 300 and not b.text.lower().startswith('arxiv'):
+                    title = b.text
+                    break
+
+        # 策略3：如果标题包含 arXiv ID，尝试清理
+        if title:
+            # 移除常见的 arXiv 前缀格式
+            arxiv_patterns = [
+                r'^arXiv:\d+\.\d+v?\d*\s*',
+                r'^\d+\.\d+v?\d*\s+',
+            ]
+            for pattern in arxiv_patterns:
+                title = re.sub(pattern, '', title, flags=re.IGNORECASE).strip()
+
+        # === 摘要提取（多策略） ===
+        abstract_found = False
+
+        # 策略1：查找 "Abstract" 标记后的内容
         for i, block in enumerate(first_page_blocks):
             text_lower = block.text.lower().strip()
+
+            # 精确匹配 "abstract" 开头
             if text_lower.startswith("abstract"):
-                # 摘要可能在同一块或下一块
-                if len(block.text) > 50:
-                    abstract = block.text
-                elif i + 1 < len(first_page_blocks):
-                    abstract = first_page_blocks[i + 1].text
+                abstract_content = block.text
+
+                # 移除 "Abstract" 前缀
+                abstract_content = re.sub(r'^abstract[:\s]*', '', abstract_content, flags=re.IGNORECASE).strip()
+
+                # 如果当前块内容太短，合并后续块
+                if len(abstract_content) < 100 and i + 1 < len(first_page_blocks):
+                    next_blocks = first_page_blocks[i+1:i+4]
+                    for nb in next_blocks:
+                        # 遇到下一个章节标题停止
+                        if nb.layout_type == LayoutType.TITLE or nb.text.lower().startswith(('1.', '1 ', 'introduction')):
+                            break
+                        abstract_content += " " + nb.text
+
+                abstract = abstract_content.strip()
+                abstract_found = True
                 break
+
+        # 策略2：查找包含 "Abstract" 的块
+        if not abstract_found:
+            for i, block in enumerate(first_page_blocks):
+                if 'abstract' in block.text.lower() and len(block.text) > 100:
+                    abstract = re.sub(r'^abstract[:\s]*', '', block.text, flags=re.IGNORECASE).strip()
+                    abstract_found = True
+                    break
+
+        # 策略3：如果仍未找到，取第一页中间较长的段落（跳过标题区域）
+        if not abstract_found and len(first_page_blocks) > 5:
+            for block in first_page_blocks[3:10]:
+                if len(block.text) > 200 and block.layout_type == LayoutType.TEXT:
+                    abstract = block.text[:500]
+                    break
 
         return title, authors, abstract
 
